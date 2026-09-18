@@ -6,17 +6,17 @@
   VCamdroid
 </h1>
 
-<p align="center">Turn your Android phone into a high-performance Windows webcam.</p>
+<p align="center">Turn your Android phone into a high-performance Windows webcam and professional OBS Studio camera.</p>
 
 <p align="center">
-  <a href="https://github.com/darusc/VCamdroid/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/darusc/VCamdroid?style=for-the-badge" alt="License">
+  <a href="https://github.com/ShadowPlague21/VCamdroid/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/ShadowPlague21/VCamdroid?style=for-the-badge" alt="License">
   </a>
-  <a href="https://github.com/darusc/VCamdroid/releases">
-    <img src="https://img.shields.io/github/v/release/darusc/VCamdroid?style=for-the-badge" alt="Release">
+  <a href="https://github.com/ShadowPlague21/VCamdroid/releases">
+    <img src="https://img.shields.io/github/v/release/ShadowPlague21/VCamdroid?style=for-the-badge" alt="Release">
   </a>
-  <a href="https://github.com/darusc/VCamdroid/releases">
-    <img src="https://img.shields.io/github/downloads/darusc/VCamdroid/total?style=for-the-badge" alt="Downloads">
+  <a href="https://github.com/ShadowPlague21/VCamdroid/releases">
+    <img src="https://img.shields.io/github/downloads/ShadowPlague21/VCamdroid/total?style=for-the-badge" alt="Downloads">
   </a>
 </p>
 
@@ -24,212 +24,204 @@
 
 1. [**Description**](#description)
 2. [**Key Features**](#key-features)
-3. [**Installation Guide**](#installation-guide)
-4. [**Usage Instructions**](#usage-instructions)
-5. [**Troubleshooting**](#troubleshooting)
-6. [**Reporting Issues**](#reporting-issues)
-7. [**Technical Architecture**](#technical-architecture)
-8. [**Contributing**](#contributing)
+3. [**Modes of Operation**](#modes-of-operation)
+   * [1. OBS Studio Mode (Direct Connect)](#1-obs-studio-mode-direct-connect)
+   * [2. Desktop Client & Virtual Webcam Mode](#2-desktop-client--virtual-webcam-mode)
+4. [**Pro Studio Controls**](#pro-studio-controls)
+5. [**Installation Guide**](#installation-guide)
+6. [**Usage Instructions**](#usage-instructions)
+   * [OBS Studio via Wired USB (ADB)](#obs-studio-via-wired-usb-adb)
+   * [OBS Studio via Local Wi-Fi](#obs-studio-via-local-wi-fi)
+   * [Windows Desktop Client via USB / Wi-Fi](#windows-desktop-client-via-usb--wi-fi)
+7. [**Screen-Off & Background Streaming**](#screen-off--background-streaming)
+8. [**Technical Architecture**](#technical-architecture)
+9. [**Troubleshooting**](#troubleshooting)
+10. [**Contributing**](#contributing)
+
+---
 
 ## Description
 
-VCamdroid allows you to seamlessly use your mobile device’s camera as a virtual webcam on your PC. Built using a custom DirectShow filter provided by [Softcam library](https://github.com/tshino/softcam), it ensures compatibility with popular applications like Zoom, OBS, Discord, and Teams. Whether wired (via ADB) or wireless (via Wi-Fi), VCamdroid delivers a low-latency, hardware-accelerated video feed directly to your desktop.
+**VCamdroid** transforms your Android smartphone into a broadcast-grade video capture device. It provides two powerful operating modes:
+1. **Direct OBS Studio Streaming:** A standalone, low-latency streaming server running directly on your phone, providing full compatibility with OBS Studio over Wi-Fi and high-speed USB (ADB) with live tally feedback and hardware-accelerated H.264/HEVC encoding up to 1080p @ 60 FPS.
+2. **Windows Virtual Webcam:** A custom DirectShow filter registered via the desktop client, enabling seamless camera feeds into Zoom, Microsoft Teams, Discord, Google Meet, and any standard Windows webcam application.
 
 <p align="center">
   <img src="imgs/demo.gif" width="600" alt="VCamdroid Demo">
 </p>
 
+---
+
 ## Key Features
 
-* **Universal Compatibility:** Works with any Windows application that supports standard webcams.
-* **Flexible Connectivity:** Supports high-speed wired connections (via ADB) and convenient wireless connections (via Wi-Fi).
-* **Multi-Device Support:** Connect multiple Android devices simultaneously and switch between them instantly.
-* **Full Camera Control:** Remotely toggle between front and back cameras, adjust resolutions, and enable flash.
-* **Image Adjustments:** Real-time controls for rotation, mirroring (flip), brightness, contrast, and saturation.
-* **Zero-Config Pairing:** Automatically connects over USB via ADB; straightforward QR code pairing for Wi-Fi.
+* **Pro Manual Studio Controls:**
+  * **Manual ISO Sensitivity:** Full control from ISO 100 up to 6400 with automatic exposure compensation synchronization and instant Auto/Manual toggle.
+  * **Continuous Smooth Sliders:** 10,000 sub-step smooth, non-snapping sliders for zoom (1.0x to 10.0x), EV compensation, and manual focus distance.
+  * **Direct Tap-to-Edit Inputs:** Tap any value indicator (ISO, Zoom, EV, Focus) to open an exact numeric entry dialog.
+  * **White Balance Presets:** Instant selection between Auto, Daylight, Cloudy, Fluorescent, and Incandescent color temperatures.
+  * **Manual Focus Puller:** Switch between continuous auto-focus and precise manual lens positioning.
+  * **Integrated Torch / Flashlight:** One-tap toggle for device LED illumination.
+  * **Lens Switching:** Seamlessly switch between rear and front-facing camera sensors.
 
+* **OBS Studio Integration:**
+  * **Hardware Acceleration:** Hardware-accelerated H.264 (AVC) and H.265 (HEVC) encoding up to 1080p at 60 frames per second.
+  * **Live Tally Indicator:** Real-time visual status badges (**PROGRAM** active broadcast, **PREVIEW** staging, **STANDBY** idle) driven by OBS feedback.
+  * **Synchronized Audio Streaming:** High-fidelity 44.1 kHz AAC audio capture directly from device microphones.
+
+* **Battery & Screen Preservation:**
+  * **AMOLED True-Black Screen Saver:** Turn on a 0% power black overlay during live broadcasts to protect OLED/AMOLED screens against burn-in.
+  * **Physical Power-Button Background Streaming:** Keep streaming continuously with the physical power button pressed and the screen completely locked/turned off, powered by an Android foreground service with partial wake locks and low-latency Wi-Fi locks.
+
+* **Dual-Mode Connectivity:**
+  * **Ultra-Low Latency USB (ADB):** Zero-jitter, interference-free transmission over standard USB cables using ADB port forwarding.
+  * **High-Speed Wireless (Wi-Fi):** Direct LAN streaming with live IP and port display on the in-app heads-up display.
+
+* **Universal DirectShow Filter:**
+  * Custom Windows virtual webcam driver for universal desktop compatibility across conferencing apps.
+
+---
+
+## Modes of Operation
+
+### 1. OBS Studio Mode (Direct Connect)
+Launch the **OBS Plugin Mode** from the main screen to start the embedded streaming server on port `4747`. Connect directly from OBS Studio over your local Wi-Fi network or zero-latency USB without needing any intermediate desktop client.
+
+### 2. Desktop Client & Virtual Webcam Mode
+Use the Windows desktop client to receive RTSP video streams from the Android app. The desktop client outputs frames to a DirectShow virtual webcam (`softcam.dll`), making your phone's camera visible as a standard USB webcam in video conferencing and browser software.
+
+---
+
+## Pro Studio Controls
+
+The in-app studio interface provides a professional heads-up display (HUD):
+
+| Control | Description | Range / Options | Direct Edit |
+| :--- | :--- | :--- | :---: |
+| **ISO** | Sensor light sensitivity & gain | 100 - 6400 (or Auto) | Yes (Tap value) |
+| **Zoom** | Smooth continuous digital & optical magnification | 1.0x - 10.0x | Yes (Tap value) |
+| **EV** | Auto-exposure compensation bias | Device-supported steps | Yes (Tap value) |
+| **Focus** | Lens focal distance puller | Macro (0.0) - Infinity (1.0) / Auto | Yes (Tap value) |
+| **WB** | White balance color temperature presets | Auto, Daylight, Cloudy, Fluorescent, Incandescent | Presets |
+| **Torch** | Camera LED assist light | On / Off | One-tap |
+| **Audio** | AAC microphone audio stream | On / Off | One-tap |
+
+---
 
 ## Installation Guide
 
 ### Prerequisites
-* **PC:** Windows 10 or 11.
-* **Phone:** Android 7.0 (Nougat) or higher.
+* **PC:** Windows 10 or 11 (64-bit).
+* **Phone:** Android 7.0 (Nougat) or higher (Android 10+ recommended for HEVC 60 FPS).
 
 ### Step 1: Install on Windows
-1.  Download the latest binaries from the [**Releases Page**](https://github.com/darusc/VCamdroid/releases).
-2.  Extract the ZIP archive.
-3.  Right-click `install.bat` and select **Run as Administrator**.
-    * *Note: This script registers `softcam.dll` with the system, making the virtual webcam device visible to other applications.*
-4. Check both **Private** and **Public** profiles in the Windows Firewall popup and allow the app
+1. Download the latest release from the [**Releases Page**](https://github.com/ShadowPlague21/VCamdroid/releases).
+2. Extract the archive to a local folder.
+3. If using the Virtual Webcam feature, right-click `install.bat` and select **Run as Administrator** to register `softcam.dll`.
+4. Allow `VCamdroid.exe` through Windows Firewall (check both **Private** and **Public** profiles).
 
 ### Step 2: Install on Android
-You can transfer the APK file to your phone and install it manually, or follow the steps below for an automatic install:
-1.  Connect your phone to your PC via USB.
-2.  Ensure **USB Debugging** is enabled (see instructions below).
-3.  Run `install_apk.bat` on your PC to automatically install the app on your phone.
+1. Transfer the APK file to your phone and install it, or install via ADB:
+   ```powershell
+   adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+   ```
+2. Grant Camera and Microphone permissions when prompted.
 
-
-### 💡 How to Enable USB Debugging
-1.  Go to **Settings > About Phone**.
-2.  Find **Build Number** and tap it **7 times** until you see "You are now a developer!"
-3.  Go back to **Settings > System > Developer Options**.
-4.  Toggle **USB Debugging** to **ON**.
-    * *For device-specific steps, refer to the [official Android documentation](https://developer.android.com/studio/debug/dev-options).*
-
+---
 
 ## Usage Instructions
 
-### Wired Connection (USB / ADB)
-*Recommended for lowest latency and highest stability.*
+### OBS Studio via Wired USB (ADB)
+*Recommended for the lowest latency and rock-solid broadcast stability.*
 
-1.  Connect your phone to the PC via USB.
-2.  Launch the **VCamdroid Desktop Client**.
-3.  Launch the **VCamdroid App** on your phone.
-4.  The connection is automatic. App should change to streaming mode.
+1. Connect your Android phone to the PC with a USB cable.
+2. Ensure **USB Debugging** is enabled in Developer Options.
+3. Forward the streaming port using ADB in PowerShell or Command Prompt:
+   ```powershell
+   adb forward tcp:4747 tcp:4747
+   ```
+4. Open the **VCamdroid** app on your phone and tap **OBS Plugin Mode (No QR)**.
+5. In OBS Studio, add a camera source configured to address `127.0.0.1` on port `4747`.
+6. Streaming begins instantly. The tally badge will reflect your live broadcast state.
 
-### Wireless Connection (Wi-Fi)
-1.  Ensure both your PC and phone are on the same Wi-Fi network.
-2.  Launch the **VCamdroid Desktop Client** and select the **Connect** tab to reveal a QR Code.
-3.  Launch the **VCamdroid App** on your phone.
-4.  Point your camera at the PC screen to scan the QR code. Clicl 'connect' in the popup dialog.
+### OBS Studio via Local Wi-Fi
+1. Connect your phone and PC to the same Wi-Fi network.
+2. Open **VCamdroid** on your phone and tap **OBS Plugin Mode (No QR)**.
+3. Note the IP address displayed on the screen (e.g., `192.168.1.150:4747`).
+4. In OBS Studio, configure the camera source to connect to that IP address on port `4747`.
 
-If you encounter any problems check the [**Troubleshooting**](#troubleshooting) section. If the issue still persist, please [report the issue](#reporting-issues).
+### Windows Desktop Client via USB / Wi-Fi
+1. Launch `VCamdroid.exe` on your PC.
+2. Open the **VCamdroid** app on your phone.
+3. For USB: The desktop client automatically detects the connected device and establishes the video link.
+4. For Wi-Fi: Switch to the **Connect** tab in the desktop client to reveal the pairing QR code, and scan it with the phone's camera.
 
+---
+
+## Screen-Off & Background Streaming
+
+To maximize battery life and completely eliminate screen burn-in during long live streams:
+
+* **AMOLED Screen Saver:** Tap the **Dim / Screen Saver** button on the studio HUD. This activates a true-black (0% OLED pixel emission) touch overlay that stays awake while saving energy. Tap anywhere on the screen to restore the studio HUD.
+* **Physical Power Button Lock:** You can press your phone's physical hardware power button at any time. The app utilizes a background `StreamingService` with a high-priority foreground notification, partial wake locks, and low-latency Wi-Fi locks to maintain unthrottled video encoding even while the screen is off.
 
 ---
 
 ## Technical Architecture
 
-### Networking Protocol
-VCamdroid utilizes the industry-standard **RTSP (Real-Time Streaming Protocol)** to ensure robust, low-latency video transmission between the Android device and the Windows client.
+```mermaid
+flowchart LR
+    subgraph Android["Android Device"]
+        C2["Camera2 API"] --> GL["OpenGL ES / Texture Pipeline"]
+        GL --> MC["Hardware MediaCodec: H.264 / HEVC"]
+        MIC["AudioRecord"] --> AAC["MediaCodec AAC"]
+        MC --> DCS["OBS Streaming Server :4747"]
+        AAC --> DCS
+        MC --> RTSPS["RTSP Server"]
+        AAC --> RTSPS
+    end
 
-1.  **Transport Layer:**
-    * **Wi-Fi Connection:** The Windows client connects directly to the RTSP server running on the Android device over the local network.
-    * **USB Connection:** To enable wired communication, the application uses **ADB Port Forwarding**. Since ADB only supports TCP forwarding, the RTSP stream is tunneled exclusively over **TCP** (interleaved RTSP). This creates a stable, high-bandwidth tunnel via `localhost` that bypasses network interference.
-
-2.  **Stream Handling Libraries:**
-    * **Server Side (Android):** Powered by the [RootEncoder](https://github.com/pedroSG94/RootEncoder) library. It handles the complex tasks of interfacing with the Android encoder, packetizing the video data into RTP packets, and managing the RTSP server session.
-    * **Client Side (Windows):** Utilizes [FFmpeg](https://ffmpeg.org/), the leading multimedia framework, to robustly demux the RTSP stream and decode the incoming video packets.
-
-<p align="center"><img src="imgs/network.png" width="60%"></p> 
+    subgraph Desktop["Windows PC"]
+        DCS -- "TCP / ADB Port 4747" --> OBS["OBS Studio"]
+        RTSPS -- "RTSP / TCP Interleaved" --> FF["FFmpeg Demux & Decode"]
+        FF --> SC["Softcam DirectShow Filter"]
+        SC --> APPS["Zoom / Teams / Discord / Meet"]
+    end
+```
 
 ### Video Pipeline
-The pipeline is engineered for performance, offloading image processing to the Android GPU before compression to minimize latency and bandwidth.
-
-1.  **Capture, Process & Encode (Android):**
-    * **Capture:** Video frames are captured using the modern **Camera2 API**.
-    * **Pre-Processing:** Raw frames are processed on the GPU using OpenGL. Operations like **Rotation**, **Mirroring (Flip)**, and **Color Correction** are applied here *before* encoding, ensuring the stream is "ready-to-display."
-    * **Hardware Encoding:** The processed frames are passed to the device's hardware **MediaCodec** (supporting **H.264** or **H.265/HEVC**). This offloads compression from the CPU.
-    * **Transmission:** **RootEncoder** encapsulates the encoded stream into RTP packets and transmits them over the active network connection.
-
-2.  **Decode & Render (Windows):**
-    * **Decoding:** The Windows client receives the RTSP stream and uses **FFmpeg** to decode the compressed H.264/H.265 frames into raw image data (YUV/RGB).
-    * **Output:**
-        * **UI Preview:** The decoded frame is rendered immediately to the application window for live monitoring.
-        * **Virtual Device:** The frame is written to a ring buffer managed by the [Softcam](https://github.com/tshino/softcam) library. Softcam acts as the bridge between the user application and the system-registered DirectShow filter, allowing third-party apps (Zoom, Teams, OBS) to treat the stream as a physical webcam device.
-
-<p align="center"><img src="imgs/pipeline.png" width="50%"></p> 
-
-
-## 🤝 Contributing
-
-We actively welcome contributions! Whether you're fixing a bug, optimizing performance, or adding a cool new feature, please feel free to fork the repository and submit a Pull Request.
-
-### 📂 Repository Structure
-* `android/`: The Android Studio project (Kotlin). Handles Camera2 API capture, OpenGL processing, and RTSP streaming.
-* `windows/`: The Visual Studio solution (C++). Contains the Desktop Client GUI and the DirectShow Filter logic.
+* **Capture:** Direct integration with Android's modern `Camera2` subsystem for granular manual exposure, ISO, and focus control.
+* **Hardware Encoding:** Zero-copy GPU surface feeding directly into device-native `MediaCodec` encoders for H.264 (AVC Baseline/High) and H.265 (HEVC Main) at up to 1080p @ 60 FPS.
+* **Network Multiplexing:** Native framing for video NAL units and ADTS AAC audio payloads, optimized for low packet overhead and predictable frame delivery.
 
 ---
-
-### 🛠️ Development Setup
-
-#### 📱 Android App
-1.  **Prerequisites:** Install the latest **Android Studio**.
-2.  **Import:** Open the `android/` directory as a project.
-3.  **Build:** Let Gradle sync and download dependencies.
-    * *Core Dependency:* [RootEncoder](https://github.com/pedroSG94/RootEncoder) (handles RTSP/RTP packets).
-4.  **Run:** Connect a physical Android device (emulators often lack necessary encoder hardware) and run the `app` module.
-
-#### 💻 Windows Client
-1.  **Prerequisites:**
-    * **Visual Studio 2026** (with "Desktop development with C++" workload).
-    * **vcpkg** for ```asio 1.32.0```, ```wxWidgets 3.3.1``` and ```ffmpeg 7.1.2```.
-
-2.  **Install Dependencies:**
-    Use `vcpkg` to install the required libraries for **x64**:
-    ```powershell
-    vcpkg install wxwidgets:x64-windows ffmpeg:x64-windows
-    vcpkg integrate install
-    ```
-
-3.  **Build Instructions:**
-    * Build ```softcam```. [See](https://github.com/tshino/softcam?tab=readme-ov-file#how-to-build-the-library) for instructions.
-    * Open `windows/VCamdroid.sln`.
-    * Set the configuration to **Release / x64** (x86 is not supported).
-    * Build the solution.
-
-4.  **Testing the Driver:**
-    * The DirectShow filter (`softcam.dll`) must be registered to be visible to apps like OBS or Zoom.
-    * Run `install.bat` as Administrator in your output directory, or manually register it via:
-        ```cmd
-        regsvr32 softcam.dll
-        ```
-
-### 📬 Submitting a Pull Request
-1.  Fork the project.
-2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4.  Push to the branch (`git push origin feature/AmazingFeature`).
-5.  Open a Pull Request.
-
 
 ## Troubleshooting
 
-### App Crashes / "VCRUNTIME140.dll was not found"
-If the application closes immediately or you see a system popup error regarding missing DLLs (like `VCRUNTIME140.dll` or `MSVCP140.dll`), your PC is missing the C++ runtime libraries.
-* **Fix:** Download and install the [latest VC++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) from Microsoft.
+### Port 4747 Connection Timeout
+* **Wi-Fi:** Verify that both the phone and PC are connected to the same subnet, and ensure your router does not have "AP Isolation" or "Client Isolation" turned on.
+* **USB:** Check that ADB detects your device by running `adb devices`. If the device is listed, ensure port forwarding is active by re-running:
+  ```powershell
+  adb forward tcp:4747 tcp:4747
+  ```
 
-### Connection Failed / Host Unreachable
-If the Android app cannot connect to the Windows client:
-1.  **Check Windows Firewall:** The firewall often blocks incoming video streams.
-    * Search for **"Allow an app through Windows Firewall"** in the Start Menu.
-    * Find `VCamdroid.exe` in the list and ensure both **Private** and **Public** boxes are checked.
-2.  **Verify Network Visibility (Reverse Ping Test):**
-    Sometimes the phone cannot see the PC. To verify:
-    * Connect via USB (for the test command).
-    * Open a terminal in the VCamdroid folder and run: `adb shell ping -c 4 <PC_IP_ADDRESS>`
-    * If you see "100% packet loss" or "unreachable," your PC's firewall or router settings (AP Isolation) are blocking the connection.
-
-### USB Connection not working
-If the app does not detect your phone:
-1.  **Check ADB Devices:**
-    * Open a terminal in the VCamdroid folder.
-    * Run: `adb devices`
-    * **If list is empty:** Your cable is bad or [Universal ADB Drivers](https://adb.clockworkmod.com/) are missing.
-    * **If "unauthorized":** Check your phone screen and tap "Allow" on the **"Allow USB Debugging?"** popup.
-2.  **Kill Conflicting ADB Processes:**
-    * Open **Task Manager** (`Ctrl + Shift + Esc`).
-    * Search for `adb.exe` in the **Details** tab.
-    * Right-click and select **End Task**, then restart VCamdroid.
+### Frame Drops or Stutter
+* Switch to **USB (ADB)** mode for zero interference.
+* On Wi-Fi, ensure you are connected to a 5 GHz band.
+* Try lowering resolution or switching encoder between H.264 and HEVC in settings depending on your device's hardware codec efficiency.
 
 ---
 
-## Reporting Issues
+## Contributing
 
-VCamdroid is a new project, and hardware compatibility varies across thousands of Android devices. Your feedback is crucial!
+Contributions are welcome! If you'd like to improve the camera pipeline, UI controls, or documentation:
+1. Fork the repository.
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+4. Push to the branch (`git push origin feature/AmazingFeature`).
+5. Open a Pull Request.
 
-If you encounter a bug or crash, please open a [New Issue](https://github.com/darusc/VCamdroid/issues) and **attach the logs** to help us fix it faster.
+---
 
-### How to get the logs:
-1.  **Android Logs:**
-    * Open the VCamdroid app on your phone.
-    * Tap the **Bug Icon** 🐞 in the top corner.
-    * Click the **Save/Share** button to export the log file.
-2.  **Windows Logs:**
-    * Check the `vcamdroid.log` file inside the VCamdroid installation directory.
-    * Copy the text from the latest log file.
+## License
 
-**Please include:**
-* Phone Model (e.g., Samsung S21, Pixel 6)
-* Android Version
-* Connection Method (USB or Wi-Fi)\
+This project is licensed under the terms specified in the [LICENSE](LICENSE) file.

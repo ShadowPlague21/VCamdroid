@@ -1,0 +1,635 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0A0A0C"
+    tools:context=".DroidCamActivity">
+
+    <!-- Camera Preview Viewport -->
+    <SurfaceView
+        android:id="@+id/cameraPreview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Tap-To-Focus Visual Target Ring -->
+    <ImageView
+        android:id="@+id/focusRing"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:src="@android:drawable/presence_online"
+        android:visibility="gone"
+        app:tint="#00E676"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Top Modern Glassmorphic HUD Bar -->
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="12dp"
+        android:background="#B312131A"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_revert"
+            app:tint="#FFFFFF"
+            android:contentDescription="Back" />
+
+        <!-- Status Pill -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/txtConnectionPill"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="192.168.1.xxx : 4747"
+                android:textColor="#00E676"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium" />
+
+            <TextView
+                android:id="@+id/txtSubStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Wi-Fi &amp; USB ADB Ready"
+                android:textColor="#9E9E9E"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- Studio Tally Pill -->
+        <TextView
+            android:id="@+id/txtTally"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="4dp"
+            android:text="STANDBY"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:background="#2E303E"
+            android:layout_marginEnd="8dp" />
+
+        <!-- AMOLED Dim Mode Toggle Button -->
+        <ImageButton
+            android:id="@+id/btnDim"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_lock_power_off"
+            app:tint="#64B5F6"
+            android:layout_marginEnd="6dp"
+            android:contentDescription="Dim Screen" />
+
+        <!-- Studio Settings Button -->
+        <ImageButton
+            android:id="@+id/btnSettings"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_preferences"
+            app:tint="#FFFFFF"
+            android:contentDescription="Settings" />
+    </LinearLayout>
+
+    <!-- Floating ISO Slider Overlay (Collapsible) -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/isoCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="20dp"
+        android:layout_marginBottom="12dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="#E6161722"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="6dp"
+        app:layout_constraintBottom_toTopOf="@id/bottomControlPalette">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="SENSOR SENSITIVITY (ISO)"
+                    android:textColor="#9E9E9E"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/txtIsoValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ISO Auto [400]"
+                    android:textColor="#FFB74D"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:background="#2E303E"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="4dp"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <Button
+                    android:id="@+id/btnIsoAuto"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="8dp"
+                    android:minWidth="60dp"
+                    android:text="AUTO"
+                    android:textSize="10sp"
+                    android:textColor="#000000"
+                    android:backgroundTint="#00E676" />
+            </LinearLayout>
+
+            <SeekBar
+                android:id="@+id/seekIso"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:max="10000"
+                android:progress="0"
+                android:progressTint="#FFB74D"
+                android:thumbTint="#FFB74D" />
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <!-- Floating Zoom Slider Overlay (Collapsible) -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/zoomCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="20dp"
+        android:layout_marginBottom="12dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="#E6161722"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="6dp"
+        app:layout_constraintBottom_toTopOf="@id/bottomControlPalette">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="OPTICAL / DIGITAL ZOOM"
+                    android:textColor="#9E9E9E"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/txtZoomValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="1.0x"
+                    android:textColor="#00E676"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:background="#2E303E"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="4dp"
+                    android:clickable="true"
+                    android:focusable="true" />
+            </LinearLayout>
+
+            <SeekBar
+                android:id="@+id/seekZoom"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:max="10000"
+                android:progress="0"
+                android:progressTint="#00E676"
+                android:thumbTint="#00E676" />
+
+            <!-- Quick Zoom Presets -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:layout_marginTop="4dp">
+
+                <Button
+                    android:id="@+id/btnZoom1x"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:minWidth="50dp"
+                    android:text="1x"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#2E303E"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btnZoom2x"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:minWidth="50dp"
+                    android:text="2x"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#2E303E"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btnZoom5x"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:minWidth="50dp"
+                    android:text="5x"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#2E303E" />
+            </LinearLayout>
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <!-- Floating Exposure (EV) Slider Overlay (Collapsible) -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/evCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="20dp"
+        android:layout_marginBottom="12dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="#E6161722"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="6dp"
+        app:layout_constraintBottom_toTopOf="@id/bottomControlPalette">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="EXPOSURE COMPENSATION (EV)"
+                    android:textColor="#9E9E9E"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/txtEvValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0.0 EV"
+                    android:textColor="#FFD54F"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:background="#2E303E"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="4dp"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <Button
+                    android:id="@+id/btnAeLock"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="8dp"
+                    android:minWidth="60dp"
+                    android:text="AE LOCK"
+                    android:textSize="10sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#2E303E" />
+            </LinearLayout>
+
+            <SeekBar
+                android:id="@+id/seekEv"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:max="10000"
+                android:progress="5000"
+                android:progressTint="#FFD54F"
+                android:thumbTint="#FFD54F" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:layout_marginTop="4dp">
+
+                <Button
+                    android:id="@+id/btnEvMinus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:minWidth="50dp"
+                    android:text="-0.5"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#2E303E"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btnEvReset"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:minWidth="50dp"
+                    android:text="0 EV"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#2E303E"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btnEvPlus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:minWidth="50dp"
+                    android:text="+0.5"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#2E303E" />
+            </LinearLayout>
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <!-- Floating Focus Slider Overlay (Collapsible) -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/focusCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="20dp"
+        android:layout_marginBottom="12dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="#E6161722"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="6dp"
+        app:layout_constraintBottom_toTopOf="@id/bottomControlPalette">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="FOCUS DISTANCE / MODE"
+                    android:textColor="#9E9E9E"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/txtFocusValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="AF-C"
+                    android:textColor="#64B5F6"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:background="#2E303E"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="4dp"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <Button
+                    android:id="@+id/btnFocusAuto"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="8dp"
+                    android:minWidth="60dp"
+                    android:text="AF-C"
+                    android:textSize="10sp"
+                    android:textColor="#000000"
+                    android:backgroundTint="#00E676" />
+            </LinearLayout>
+
+            <SeekBar
+                android:id="@+id/seekFocus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:max="10000"
+                android:progress="0"
+                android:progressTint="#64B5F6"
+                android:thumbTint="#64B5F6" />
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <!-- Bottom Ergonomic Studio Control Palette (Smooth Horizontal Scroll Dock) -->
+    <LinearLayout
+        android:id="@+id/bottomControlPalette"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="10dp"
+        android:paddingBottom="28dp"
+        android:background="#E60A0A0E"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:paddingHorizontal="12dp">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <!-- ISO Toggle Button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnIsoToggle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:text="ISO Auto"
+                    android:textSize="12sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#252632"
+                    app:cornerRadius="20dp"
+                    app:icon="@android:drawable/ic_menu_preferences"
+                    app:iconTint="#FFB74D"
+                    app:iconSize="16dp"
+                    android:layout_marginEnd="8dp" />
+
+                <!-- Toggle EV Slider -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnEvToggle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:text="EV 0.0"
+                    android:textSize="12sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#252632"
+                    app:cornerRadius="20dp"
+                    app:icon="@android:drawable/ic_menu_slideshow"
+                    app:iconTint="#FFD54F"
+                    app:iconSize="16dp"
+                    android:layout_marginEnd="8dp" />
+
+                <!-- Toggle Zoom Slider -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnZoomToggle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:text="Zoom 1.0x"
+                    android:textSize="12sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#252632"
+                    app:cornerRadius="20dp"
+                    app:icon="@android:drawable/ic_menu_search"
+                    app:iconTint="#00E676"
+                    app:iconSize="16dp"
+                    android:layout_marginEnd="8dp" />
+
+                <!-- Focus Mode / Distance Slider -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnFocusToggle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:text="Focus: AF-C"
+                    android:textSize="12sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#252632"
+                    app:cornerRadius="20dp"
+                    app:icon="@android:drawable/ic_menu_crop"
+                    app:iconTint="#64B5F6"
+                    app:iconSize="16dp"
+                    android:layout_marginEnd="8dp" />
+
+                <!-- White Balance Cycle -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnAwb"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:text="AWB Auto"
+                    android:textSize="12sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#252632"
+                    app:cornerRadius="20dp"
+                    app:icon="@android:drawable/ic_menu_always_landscape_portrait"
+                    app:iconTint="#80CBC4"
+                    app:iconSize="16dp"
+                    android:layout_marginEnd="8dp" />
+
+                <!-- Camera Switch -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnSwitchLens"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:text="Lens"
+                    android:textSize="12sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#252632"
+                    app:cornerRadius="20dp"
+                    app:icon="@android:drawable/ic_menu_camera"
+                    app:iconTint="#FFFFFF"
+                    app:iconSize="16dp"
+                    android:layout_marginEnd="8dp" />
+
+                <!-- Torch / Flash Toggle -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnTorch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:text="Flash"
+                    android:textSize="12sp"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#252632"
+                    app:cornerRadius="20dp"
+                    app:icon="@android:drawable/ic_menu_day"
+                    app:iconTint="#FFD54F"
+                    app:iconSize="16dp" />
+            </LinearLayout>
+        </HorizontalScrollView>
+    </LinearLayout>
+
+    <!-- AMOLED True-Black Screen Saver Overlay -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/dimOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true">
+
+        <TextView
+            android:id="@+id/dimTallyStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="[ LIVE ]"
+            android:textColor="#333333"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            app:layout_constraintBottom_toTopOf="@id/dimInstructions"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent" />
+
+        <TextView
+            android:id="@+id/dimInstructions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="AMOLED Power Saver Active\nHardware Encoding in background\n\nTap anywhere to wake display"
+            android:textAlignment="center"
+            android:textColor="#222222"
+            android:textSize="14sp"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

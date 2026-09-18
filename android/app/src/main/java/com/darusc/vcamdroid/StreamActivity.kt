@@ -13,6 +13,9 @@ import com.darusc.vcamdroid.rtsp.Streamer
 import com.darusc.vcamdroid.rtsp.StreamOptions
 import com.darusc.vcamdroid.util.Logger
 
+import android.view.View
+import com.darusc.vcamdroid.service.StreamingService
+
 class StreamActivity : AppCompatActivity(), SurfaceHolder.Callback, ConnectionManager.ConnectionStateCallback {
 
     private val TAG = "VCamdroid"
@@ -21,6 +24,7 @@ class StreamActivity : AppCompatActivity(), SurfaceHolder.Callback, ConnectionMa
 
     private val connectionManager = ConnectionManager.getInstance(this)
     private lateinit var streamer: Streamer
+    private var isDimMode = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,18 +35,43 @@ class StreamActivity : AppCompatActivity(), SurfaceHolder.Callback, ConnectionMa
 
         setContentView(viewBinding.root)
 
-        // Disable navigating to logs activity for now as it breaks streaming
-//        viewBinding.logReportButton.setOnClickListener {
-//            val intent = Intent(this, LogActivity::class.java)
-//            startActivity(intent)
-//        }
+        // Start Foreground Service to keep CPU and Wi-Fi active even with screen locked/off
+        StreamingService.startService(this)
 
         connectionManager.setOnBytesReceivedCallback(::onBytesReceived)
         streamer = Streamer(StreamOptions(), this, viewBinding.surfaceView)
+
+        setupDimMode()
+    }
+
+    private fun setupDimMode() {
+        viewBinding.dimButton.setOnClickListener {
+            toggleDimMode(true)
+        }
+
+        viewBinding.dimOverlay.setOnClickListener {
+            toggleDimMode(false)
+        }
+    }
+
+    private fun toggleDimMode(enable: Boolean) {
+        isDimMode = enable
+        val layoutParams = window.attributes
+        if (enable) {
+            viewBinding.dimOverlay.visibility = View.VISIBLE
+            viewBinding.dimButton.visibility = View.GONE
+            layoutParams.screenBrightness = 0.01f // Minimum brightness on AMOLED
+        } else {
+            viewBinding.dimOverlay.visibility = View.GONE
+            viewBinding.dimButton.visibility = View.VISIBLE
+            layoutParams.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        }
+        window.attributes = layoutParams
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         if (holder.surface != null && holder.surface.isValid) {
+            streamer.onScreenOn(viewBinding.surfaceView)
             streamer.startPreview()
         }
     }
@@ -50,12 +79,22 @@ class StreamActivity : AppCompatActivity(), SurfaceHolder.Callback, ConnectionMa
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) { }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        streamer.stop()
+        // Switch to off-screen context so stream continues when screen turns off
+        streamer.onScreenOff()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (isFinishing) {
+            StreamingService.stopService(this)
+            streamer.stop()
+        }
     }
 
     override fun onDisconnected() {
         Toast.makeText(this, "Connection closed by server", Toast.LENGTH_LONG).show()
         Logger.log("STREAM", "TCP server disconnected")
+        StreamingService.stopService(this)
         streamer.stop()
         finish()
     }

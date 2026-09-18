@@ -55,6 +55,11 @@ class MainActivity : AppCompatActivity(), ConnectionManager.ConnectionStateCallb
             startActivity(intent)
         }
 
+        viewBinding.droidCamModeButton.setOnClickListener {
+            val intent = Intent(this, DroidCamActivity::class.java)
+            startActivity(intent)
+        }
+
         enableEdgeToEdge()
         initialize()
     }

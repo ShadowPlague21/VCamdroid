@@ -30,7 +30,7 @@ import java.util.logging.Filter
 
 class Streamer(
     private var options: StreamOptions,
-    context: Context,
+    private val context: Context,
     openGlView: OpenGlView,
 ) : ConnectChecker {
 
@@ -71,6 +71,30 @@ class Streamer(
         rtspServerCamera2.stopPreview()
         if (rtspServerCamera2.isStreaming) {
             rtspServerCamera2.stopStream()
+        }
+    }
+
+    /**
+     * Swaps display surface to off-screen context so stream continues when screen turns off
+     */
+    fun onScreenOff() {
+        try {
+            rtspServerCamera2.replaceView(context)
+            Logger.log("STREAMER", "Switched to off-screen context for screen-off RTSP streaming")
+        } catch (e: Exception) {
+            Logger.log("STREAMER", "replaceView(context) error: ${e.message}")
+        }
+    }
+
+    /**
+     * Restores on-screen display surface when screen turns back on
+     */
+    fun onScreenOn(openGlView: OpenGlView) {
+        try {
+            rtspServerCamera2.replaceView(openGlView)
+            Logger.log("STREAMER", "Switched back to on-screen OpenGlView")
+        } catch (e: Exception) {
+            Logger.log("STREAMER", "replaceView(openGlView) error: ${e.message}")
         }
     }
 
@@ -296,7 +320,7 @@ class Streamer(
                     options.height,
                     options.fps,
                     options.bitrate,
-                    0
+                    1
                 )
                 rtspServerCamera2.startStream(URL)
                 Logger.log("STREAMER", "Stream started")

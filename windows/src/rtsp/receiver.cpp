@@ -53,9 +53,9 @@ namespace RTSP
 		// Low latency settings
 		av_dict_set(&options, "fflags", "nobuffer", 0);
 		av_dict_set(&options, "flags", "low_delay", 0);
-		// Immediate start
+		// Immediate start with ultra-low analyze duration (50ms instead of 1000ms)
 		av_dict_set(&options, "probesize", "32768", 0);
-		av_dict_set(&options, "analyzeduration", "1000000", 0);
+		av_dict_set(&options, "analyzeduration", "50000", 0);
 
 		int ret = avformat_open_input(ctx, rtspUrl.c_str(), nullptr, &options);
 		if (ret != 0)
@@ -98,10 +98,22 @@ namespace RTSP
 			return false;
 		}
 
-		const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+		enum AVCodecID codecId = ctx->streams[streamIdx]->codecpar->codec_id;
+		if (codecId == AV_CODEC_ID_NONE) 
+		{
+			codecId = AV_CODEC_ID_H264;
+		}
+
+		const AVCodec* codec = avcodec_find_decoder(codecId);
 		if (!codec)
 		{
-			logger << "[RTSP] Error: H264 decoder not found\n";
+			logger << "[RTSP] Warning: Specific codec not found, falling back to H264\n";
+			codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+		}
+
+		if (!codec)
+		{
+			logger << "[RTSP] Error: Decoder not found\n";
 			return false;
 		}
 
