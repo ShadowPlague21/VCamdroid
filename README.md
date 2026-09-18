@@ -25,7 +25,7 @@
 1. [**Description**](#description)
 2. [**Key Features**](#key-features)
 3. [**Modes of Operation**](#modes-of-operation)
-   * [1. OBS Studio Mode (Direct Connect)](#1-obs-studio-mode-direct-connect)
+   * [1. OBS Studio Mode (DroidCam OBS Drop-in Replacement)](#1-obs-studio-mode-droidcam-obs-drop-in-replacement)
    * [2. Desktop Client & Virtual Webcam Mode](#2-desktop-client--virtual-webcam-mode)
 4. [**Pro Studio Controls**](#pro-studio-controls)
 5. [**Installation Guide**](#installation-guide)
@@ -43,7 +43,7 @@
 ## Description
 
 **VCamdroid** transforms your Android smartphone into a broadcast-grade video capture device. It provides two powerful operating modes:
-1. **Direct OBS Studio Streaming:** A standalone, low-latency streaming server running directly on your phone, providing full compatibility with OBS Studio over Wi-Fi and high-speed USB (ADB) with live tally feedback and hardware-accelerated H.264/HEVC encoding up to 1080p @ 60 FPS.
+1. **Direct OBS Studio Streaming (DroidCam OBS Drop-in Replacement):** A standalone, low-latency streaming server running directly on your phone. It acts as a seamless **drop-in replacement for the DroidCam OBS plugin** in OBS Studio over Wi-Fi and high-speed USB (ADB), featuring pro studio manual camera controls, live tally feedback, direct numeric entry, and hardware-accelerated H.264/HEVC encoding up to 1080p @ 60 FPS.
 2. **Windows Virtual Webcam:** A custom DirectShow filter registered via the desktop client, enabling seamless camera feeds into Zoom, Microsoft Teams, Discord, Google Meet, and any standard Windows webcam application.
 
 <p align="center">
@@ -63,7 +63,8 @@
   * **Integrated Torch / Flashlight:** One-tap toggle for device LED illumination.
   * **Lens Switching:** Seamlessly switch between rear and front-facing camera sensors.
 
-* **OBS Studio Integration:**
+* **OBS Studio & DroidCam OBS Integration:**
+  * **DroidCam OBS Drop-in Replacement:** Fully compatible with the popular DroidCam OBS plugin inside OBS Studio. Connects directly as a DroidCam OBS source on port `4747` without needing any client software modifications.
   * **Hardware Acceleration:** Hardware-accelerated H.264 (AVC) and H.265 (HEVC) encoding up to 1080p at 60 frames per second.
   * **Live Tally Indicator:** Real-time visual status badges (**PROGRAM** active broadcast, **PREVIEW** staging, **STANDBY** idle) driven by OBS feedback.
   * **Synchronized Audio Streaming:** High-fidelity 44.1 kHz AAC audio capture directly from device microphones.
@@ -83,8 +84,8 @@
 
 ## Modes of Operation
 
-### 1. OBS Studio Mode (Direct Connect)
-Launch the **OBS Plugin Mode** from the main screen to start the embedded streaming server on port `4747`. Connect directly from OBS Studio over your local Wi-Fi network or zero-latency USB without needing any intermediate desktop client.
+### 1. OBS Studio Mode (DroidCam OBS Drop-in Replacement)
+Launch the **OBS Plugin Mode** from the main screen to start the embedded streaming server on port `4747`. It functions as a complete drop-in replacement for the DroidCam OBS plugin. In OBS Studio, simply add a **DroidCam OBS** source to connect directly over local Wi-Fi or zero-latency USB without needing any intermediate desktop client.
 
 ### 2. Desktop Client & Virtual Webcam Mode
 Use the Windows desktop client to receive RTSP video streams from the Android app. The desktop client outputs frames to a DirectShow virtual webcam (`softcam.dll`), making your phone's camera visible as a standard USB webcam in video conferencing and browser software.
@@ -140,14 +141,14 @@ The in-app studio interface provides a professional heads-up display (HUD):
    adb forward tcp:4747 tcp:4747
    ```
 4. Open the **VCamdroid** app on your phone and tap **OBS Plugin Mode (No QR)**.
-5. In OBS Studio, add a camera source configured to address `127.0.0.1` on port `4747`.
+5. In OBS Studio, add a **DroidCam OBS** source configured to address `127.0.0.1` on port `4747` (or select USB).
 6. Streaming begins instantly. The tally badge will reflect your live broadcast state.
 
 ### OBS Studio via Local Wi-Fi
 1. Connect your phone and PC to the same Wi-Fi network.
 2. Open **VCamdroid** on your phone and tap **OBS Plugin Mode (No QR)**.
 3. Note the IP address displayed on the screen (e.g., `192.168.1.150:4747`).
-4. In OBS Studio, configure the camera source to connect to that IP address on port `4747`.
+4. In OBS Studio, add a **DroidCam OBS** source configured to connect to that IP address on port `4747`.
 
 ### Windows Desktop Client via USB / Wi-Fi
 1. Launch `VCamdroid.exe` on your PC.
@@ -174,14 +175,14 @@ flowchart LR
         C2["Camera2 API"] --> GL["OpenGL ES / Texture Pipeline"]
         GL --> MC["Hardware MediaCodec: H.264 / HEVC"]
         MIC["AudioRecord"] --> AAC["MediaCodec AAC"]
-        MC --> DCS["OBS Streaming Server :4747"]
+        MC --> DCS["OBS Streaming Server :4747 (DroidCam OBS Protocol)"]
         AAC --> DCS
         MC --> RTSPS["RTSP Server"]
         AAC --> RTSPS
     end
 
     subgraph Desktop["Windows PC"]
-        DCS -- "TCP / ADB Port 4747" --> OBS["OBS Studio"]
+        DCS -- "TCP / ADB Port 4747" --> OBS["OBS Studio (DroidCam OBS Source)"]
         RTSPS -- "RTSP / TCP Interleaved" --> FF["FFmpeg Demux & Decode"]
         FF --> SC["Softcam DirectShow Filter"]
         SC --> APPS["Zoom / Teams / Discord / Meet"]
