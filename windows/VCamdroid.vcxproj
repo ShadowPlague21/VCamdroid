@@ -217,6 +217,5 @@ if exist "$(ProjectDir)3rdparty\softcam\examples\softcam_installer\x64\Release\s
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
-    <Import Project="$(VCPKG_ROOT)\scripts\buildsystems\msbuild\vcpkg.targets" Condition="'$(VCPKG_ROOT)' != '' and Exists('$(VCPKG_ROOT)\scripts\buildsystems\msbuild\vcpkg.targets')" />
   </ImportGroup>
 </Project>

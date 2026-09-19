@@ -80,7 +80,7 @@ jobs:
           VCPKG_ROOT: C:\vcpkg
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          msbuild windows/VCamdroid.sln /p:Configuration=Release /p:Platform=x64 /p:VCPKG_ROOT=C:\vcpkg /p:VcpkgRoot=C:\vcpkg /fl /flp:logfile=msbuild_vcamdroid.log;verbosity=normal
+          msbuild windows/VCamdroid.sln /p:Configuration=Release /p:Platform=x64 /p:VCPKG_ROOT=C:\vcpkg /p:VcpkgRoot=C:\vcpkg /fl "/flp:logfile=msbuild_vcamdroid.log;verbosity=normal"
           if ($LASTEXITCODE -ne 0) {
             Write-Host "=== MSBUILD FAILURE DIAGNOSTICS ==="
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### MSBuild Failure Diagnostics"
