@@ -25,15 +25,38 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Cache vcpkg installed
+        id: cache-vcpkg
         uses: actions/cache@v4
         with:
           path: C:\vcpkg\installed
-          key: ${{ runner.os }}-vcpkg-deps-v1
+          key: ${{ runner.os }}-vcpkg-deps-v2
 
       - name: Install vcpkg dependencies
+        if: steps.cache-vcpkg.outputs.cache-hit != 'true'
         run: |
           vcpkg integrate install
           vcpkg install asio:x64-windows wxwidgets:x64-windows
+
+      - name: Integrate vcpkg
+        run: |
+          vcpkg integrate install
+
+      - name: Setup FFmpeg dependencies
+        shell: pwsh
+        run: |
+          $depsZip = "windows-deps.zip"
+          curl.exe -L -o $depsZip "https://github.com/obsproject/obs-deps/releases/download/2026-08-26/windows-deps-2026-08-26-x64.zip"
+          New-Item -ItemType Directory -Force -Path C:\deps | Out-Null
+          tar.exe -xf $depsZip -C C:\deps
+          
+          New-Item -ItemType Directory -Force -Path C:\vcpkg\installed\x64-windows\include | Out-Null
+          New-Item -ItemType Directory -Force -Path C:\vcpkg\installed\x64-windows\lib | Out-Null
+          New-Item -ItemType Directory -Force -Path C:\vcpkg\installed\x64-windows\bin | Out-Null
+          
+          Copy-Item -Path "C:\deps\include\*" -Destination "C:\vcpkg\installed\x64-windows\include\" -Recurse -Force
+          Copy-Item -Path "C:\deps\lib\*" -Destination "C:\vcpkg\installed\x64-windows\lib\" -Recurse -Force
+          Copy-Item -Path "C:\deps\bin\*" -Destination "C:\vcpkg\installed\x64-windows\bin\" -Recurse -Force
+          Remove-Item $depsZip -Force
 
       - name: Build Softcam Library
         run: |
@@ -45,14 +68,34 @@ jobs:
           msbuild windows/3rdparty/softcam/examples/softcam_installer/softcam_installer.sln /p:Configuration=Release /p:Platform=x64 /m
 
       - name: Build VCamdroid Client
+        shell: pwsh
         run: |
-          msbuild windows/VCamdroid.sln /p:Configuration=Release /p:Platform=x64 /m
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          msbuild windows/VCamdroid.sln /p:Configuration=Release /p:Platform=x64 /fl /flp:logfile=msbuild_vcamdroid.log;verbosity=normal
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "=== MSBUILD FAILURE DIAGNOSTICS ==="
+            Get-Content msbuild_vcamdroid.log | Select-String -Pattern ": error " | Select-Object -First 40 | ForEach-Object { Write-Host $_.Line }
+            exit 1
+          }
+
+      - name: Package Runtime Dependencies
+        shell: pwsh
+        run: |
+          if (Test-Path "C:\deps\bin") {
+            Copy-Item -Path "C:\deps\bin\*.dll" -Destination "dist\" -Force
+          }
+          if (Test-Path "C:\vcpkg\installed\x64-windows\bin") {
+            Copy-Item -Path "C:\vcpkg\installed\x64-windows\bin\*.dll" -Destination "dist\" -Force
+          }
 
       - name: Upload Windows Dist Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: vcamdroid-windows-dist
-          path: dist/
+          path: |
+            dist/
+            msbuild_vcamdroid.log
           retention-days: 2
 
   build-android:

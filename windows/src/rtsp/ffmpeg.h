@@ -7,3 +7,8 @@ extern "C"
 	#include <libswscale/swscale.h>
 	#include <libavutil/imgutils.h>
 }
+
+#pragma comment(lib, "avformat.lib")
+#pragma comment(lib, "avcodec.lib")
+#pragma comment(lib, "swscale.lib")
+#pragma comment(lib, "avutil.lib")

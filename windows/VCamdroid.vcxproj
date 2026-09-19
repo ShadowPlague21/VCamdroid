@@ -140,13 +140,17 @@
       <AdditionalDependencies>softcam.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy "$(OutDir)$(TargetFileName)" "$(ProjectDir)..\dist\" /y /f
-xcopy "$(OutDir)*.dll" "$(ProjectDir)..\dist\" /y /f
-xcopy "$(ProjectDir)res" "$(ProjectDir)..\dist\res\" /y /f
-xcopy "$(ProjectDir)adb" "$(ProjectDir)..\dist\adb\" /y /f
-xcopy "$(ProjectDir)adb" "$(OutDir)adb\" /y /f
-xcopy "$(ProjectDir)3rdparty\softcam\dist\bin\x64\softcam.dll" "$(ProjectDir)..\dist\" /y /f
-xcopy "$(ProjectDir)3rdparty\softcam\examples\softcam_installer\x64\Release\softcam_installer.exe" "$(ProjectDir)..\dist\" /y /f</Command>
+      <Command>if not exist "$(ProjectDir)..\dist" mkdir "$(ProjectDir)..\dist"
+if not exist "$(ProjectDir)..\dist\res" mkdir "$(ProjectDir)..\dist\res"
+if not exist "$(ProjectDir)..\dist\adb" mkdir "$(ProjectDir)..\dist\adb"
+if not exist "$(OutDir)adb" mkdir "$(OutDir)adb"
+xcopy "$(OutDir)$(TargetFileName)" "$(ProjectDir)..\dist\" /y /f /i
+xcopy "$(OutDir)*.dll" "$(ProjectDir)..\dist\" /y /f /i
+xcopy "$(ProjectDir)res\*" "$(ProjectDir)..\dist\res\" /y /f /i /s
+xcopy "$(ProjectDir)adb\*" "$(ProjectDir)..\dist\adb\" /y /f /i /s
+xcopy "$(ProjectDir)adb\*" "$(OutDir)adb\" /y /f /i /s
+if exist "$(ProjectDir)3rdparty\softcam\dist\bin\x64\softcam.dll" xcopy "$(ProjectDir)3rdparty\softcam\dist\bin\x64\softcam.dll" "$(ProjectDir)..\dist\" /y /f /i
+if exist "$(ProjectDir)3rdparty\softcam\examples\softcam_installer\x64\Release\softcam_installer.exe" xcopy "$(ProjectDir)3rdparty\softcam\examples\softcam_installer\x64\Release\softcam_installer.exe" "$(ProjectDir)..\dist\" /y /f /i</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
