@@ -161,11 +161,19 @@ void Server::ReadDeviceDescriptor(
 			if (Serializer::IsDeviceDescriptorComplete(bufferPtr->data(), bufferPtr->size(), totalDescriptorSize))
 			{
 				auto descriptor = Serializer::DeserializeDeviceDescriptor(bufferPtr->data(), totalDescriptorSize);
+
+				std::vector<uint8_t> initialBytes;
+				if (bufferPtr->size() > totalDescriptorSize)
+				{
+					initialBytes.assign(bufferPtr->begin() + totalDescriptorSize, bufferPtr->end());
+				}
+
 				auto conn = std::make_shared<Connection>(
 					std::move(*sockPtr),
 					descriptor,
 					std::bind(&Server::OnConnectionDisconnected, this, std::placeholders::_1),
-					std::bind(&Server::OnConnectionReportingError, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)
+					std::bind(&Server::OnConnectionReportingError, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+					std::move(initialBytes)
 				);
 				connections.push_back(conn);
 				connectionListener.OnDeviceConnected(descriptor);

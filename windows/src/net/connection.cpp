@@ -2,23 +2,33 @@
 
 #include "logger.h"
 
-Connection::Connection(tcp::socket socket, DeviceDescriptor& descriptor, OnDisconnectedListener onDisconnectedListener, OnBytesReceived onBytesReceived) 
+Connection::Connection(
+	tcp::socket socket,
+	DeviceDescriptor& descriptor,
+	OnDisconnectedListener onDisconnectedListener,
+	OnBytesReceived onBytesReceived,
+	std::vector<uint8_t> initialBytes) 
 	: socket(std::move(socket)),
 	descriptor(descriptor),
 	onDisconnectedListener(onDisconnectedListener),
 	onBytesReceived(onBytesReceived)
 {
-	byteBuffer = new unsigned char[255];
 	active = false;
+	if (!initialBytes.empty())
+	{
+		asio::post(this->socket.get_executor(), [this, initialBytes = std::move(initialBytes)]() {
+			onBytesReceived(this->shared_from_this(), initialBytes.data(), initialBytes.size());
+		});
+	}
 	Read();
 }
 
 void Connection::Read()
 {
-	socket.async_read_some(asio::buffer(byteBuffer, 255), [this](asio::error_code ec, size_t bytes) {
+	socket.async_read_some(asio::buffer(byteBuffer), [this](asio::error_code ec, size_t bytes) {
 		if (!ec)
 		{
-			onBytesReceived(this->shared_from_this(), (const uint8_t*)byteBuffer, bytes);
+			onBytesReceived(this->shared_from_this(), byteBuffer.data(), bytes);
 			Read();
 		}
 		else

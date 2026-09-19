@@ -176,18 +176,25 @@ class AiTrackerEngine(
             val imgW = inputImage.width.toFloat()
             val imgH = inputImage.height.toFloat()
 
-            faceDetector?.process(inputImage)
-                ?.addOnSuccessListener { faces ->
+            val detector = faceDetector
+            if (detector == null) {
+                isFaceDetectorBusy = false
+                onComplete?.invoke(nv21)
+                return
+            }
+
+            detector.process(inputImage)
+                .addOnSuccessListener { faces ->
                     val inferenceDurationMs = (SystemClock.elapsedRealtimeNanos() - inferenceStartNs) / 1_000_000f
                     val cropStartNs = SystemClock.elapsedRealtimeNanos()
                     handleFaceResults(faces, imgW, imgH, rotationDegrees)
                     val cropDurationMs = (SystemClock.elapsedRealtimeNanos() - cropStartNs) / 1_000_000f
                     lastMlPerfSummary = "ML: %.1fms | Crop: %.2fms".format(Locale.US, inferenceDurationMs, cropDurationMs)
                 }
-                ?.addOnFailureListener { e ->
+                .addOnFailureListener { e ->
                     Logger.log("AI_TRACKER", "Face detection error: ${e.message}")
                 }
-                ?.addOnCompleteListener {
+                .addOnCompleteListener {
                     isFaceDetectorBusy = false
                     onComplete?.invoke(nv21)
                 }
@@ -214,7 +221,12 @@ class AiTrackerEngine(
             val imgW = inputImage.width.toFloat()
             val imgH = inputImage.height.toFloat()
 
-            faceDetector?.process(inputImage)
+            val detector = faceDetector ?: run {
+                isFaceDetectorBusy = false
+                return
+            }
+
+            detector.process(inputImage)
                 ?.addOnSuccessListener { faces ->
                     val inferenceDurationMs = (SystemClock.elapsedRealtimeNanos() - inferenceStartNs) / 1_000_000f
                     val cropStartNs = SystemClock.elapsedRealtimeNanos()

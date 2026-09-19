@@ -2,6 +2,8 @@
 
 #include <memory>
 #include <functional>
+#include <vector>
+#include <array>
 #include <asio.hpp>
 
 #include "devicedescriptor.h"
@@ -27,14 +29,20 @@ public:
 		std::string description;
 	};
 
-	Connection(tcp::socket socket, DeviceDescriptor& descriptor, OnDisconnectedListener onDisconnectedListener, OnBytesReceived onBytesReceived);
+	Connection(
+		tcp::socket socket,
+		DeviceDescriptor& descriptor,
+		OnDisconnectedListener onDisconnectedListener,
+		OnBytesReceived onBytesReceived,
+		std::vector<uint8_t> initialBytes = {}
+	);
 private:
 
 	OnDisconnectedListener onDisconnectedListener;
 	OnBytesReceived onBytesReceived;
 
 	tcp::socket socket;
-	unsigned char* byteBuffer;
+	std::array<uint8_t, 1024> byteBuffer;
 
 	bool active;
 	DeviceDescriptor descriptor;
