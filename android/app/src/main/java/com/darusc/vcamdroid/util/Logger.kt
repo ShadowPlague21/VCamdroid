@@ -85,6 +85,20 @@ object Logger {
         }
     }
 
+    fun clear() {
+        synchronized(this) {
+            logBuffer.setLength(0)
+        }
+        fileExecutor.execute {
+            try {
+                logFile?.writeText("")
+            } catch (e: IOException) {
+                Log.e("AppLogger", "Failed to clear log file", e)
+            }
+        }
+        log("AppLogger", "=== Logs cleared ===")
+    }
+
     /**
      * Returns the raw file object for sharing
      */

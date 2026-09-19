@@ -41,6 +41,7 @@ class Camera(
 
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private lateinit var resolution: Size
+    private var cameraProvider: ProcessCameraProvider? = null
 
     private fun buildResolutionSelector(resolution: Size) =
         ResolutionSelector.Builder()
@@ -76,7 +77,8 @@ class Camera(
         cameraProviderFuture.addListener({
 
             val resolutionSelector = buildResolutionSelector(resolution)
-            val cameraProvider = cameraProviderFuture.get()
+            val provider = cameraProviderFuture.get()
+            cameraProvider = provider
 
             val preview = buildPreview(resolutionSelector, surface)
             val imageAnalyzer = buildAnalyzer(resolutionSelector) { image ->
@@ -84,13 +86,21 @@ class Camera(
             }
 
             try {
-                cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageAnalyzer)
+                provider.unbindAll()
+                provider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageAnalyzer)
             } catch (e: Exception) {
                 Logger.log("CAMERA", "Use case binding failed " + e.message)
             }
 
         }, ContextCompat.getMainExecutor(context));
+    }
+
+    fun stop() {
+        try {
+            cameraProvider?.unbindAll()
+        } catch (e: Exception) {
+            Logger.log("CAMERA", "Unbind failed " + e.message)
+        }
     }
 
     /**

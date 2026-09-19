@@ -1,5 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Base Monochrome / OLED Palette -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="oled_black">#000000</color>
+    <color name="bg_dark">#0A0A0C</color>
+    <color name="surface_graphite">#121318</color>
+    <color name="surface_elevated">#181A22</color>
+    <color name="surface_control">#222430</color>
+    <color name="surface_control_active">#142E20</color>
+    <color name="border_subtle">#262833</color>
+    <color name="border_active">#00E676</color>
+
+    <!-- Semantic Status & Instrumentation Accents -->
+    <color name="accent_green">#00E676</color>
+    <color name="accent_green_dark">#00B359</color>
+    <color name="broadcast_red">#E53935</color>
+    <color name="broadcast_red_dark">#B71C1C</color>
+    <color name="exposure_amber">#FFB74D</color>
+    <color name="exposure_amber_dark">#F57C00</color>
+    <color name="info_blue">#64B5F6</color>
+
+    <!-- Typography Hierarchy -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#9E9EA7</color>
+    <color name="text_muted">#666672</color>
+
+    <!-- Translucent Overlay Surfaces -->
+    <color name="overlay_scrim">#B3000000</color>
+    <color name="overlay_panel">#E6121318</color>
+    <color name="overlay_panel_top">#CC0E0F14</color>
+    <color name="overlay_dock">#E60D0E14</color>
 </resources>

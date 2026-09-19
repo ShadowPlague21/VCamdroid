@@ -58,11 +58,11 @@ class QRScanner() {
                                 return@addOnSuccessListener
                             }
                         }
-                        // Stop the scanner. Further attempts at connecting should be
-                        // manually triggered otherwise multiple connection might be established
-                        // (for each frame of the camera)
-                        stop()
-                        callback(parseResult(barcode.rawValue ?: ""))
+                        val parsed = parseResult(barcode.rawValue ?: "")
+                        if (parsed != null) {
+                            stop()
+                            callback(parsed)
+                        }
                     }
                     imageProxy.close()
                 }

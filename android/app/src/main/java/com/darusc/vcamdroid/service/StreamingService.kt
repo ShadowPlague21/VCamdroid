@@ -25,9 +25,12 @@ class StreamingService : Service() {
         const val ACTION_START = "com.darusc.vcamdroid.action.START_STREAMING"
         const val ACTION_STOP = "com.darusc.vcamdroid.action.STOP_STREAMING"
 
-        fun startService(context: Context) {
+        const val EXTRA_STATUS = "status"
+
+        fun startService(context: Context, status: String = "Camera ready") {
             val intent = Intent(context, StreamingService::class.java).apply {
                 action = ACTION_START
+                putExtra(EXTRA_STATUS, status)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -41,6 +44,40 @@ class StreamingService : Service() {
                 action = ACTION_STOP
             }
             context.startService(intent)
+        }
+
+        fun updateStatus(context: Context, text: String) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(NOTIFICATION_ID, buildNotification(context, text))
+        }
+
+        fun buildNotification(context: Context, contentText: String): Notification {
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                0,
+                Intent(context, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+
+            val stopIntent = Intent(context, StreamingService::class.java).apply {
+                action = ACTION_STOP
+            }
+            val stopPendingIntent = PendingIntent.getService(
+                context,
+                1,
+                stopIntent,
+                PendingIntent.FLAG_IMMUTABLE
+            )
+
+            return NotificationCompat.Builder(context, CHANNEL_ID)
+                .setContentTitle("VCamdroid")
+                .setContentText(contentText)
+                .setSmallIcon(R.drawable.log_white)
+                .setContentIntent(pendingIntent)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
         }
     }
 
@@ -71,7 +108,8 @@ class StreamingService : Service() {
                 return START_NOT_STICKY
             }
             else -> {
-                val notification = buildNotification("VCamdroid is streaming (Screen-off enabled)")
+                val status = intent?.getStringExtra(EXTRA_STATUS) ?: "Camera ready"
+                val notification = buildNotification(this, status)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     startForeground(
                         NOTIFICATION_ID,
@@ -99,37 +137,7 @@ class StreamingService : Service() {
     }
 
     fun updateNotificationText(text: String) {
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-        notificationManager?.notify(NOTIFICATION_ID, buildNotification(text))
-    }
-
-    private fun buildNotification(contentText: String): Notification {
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val stopIntent = Intent(this, StreamingService::class.java).apply {
-            action = ACTION_STOP
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            1,
-            stopIntent,
-            PendingIntent.FLAG_IMMUTABLE
-        )
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("VCamdroid Active")
-            .setContentText(contentText)
-            .setSmallIcon(R.drawable.log_white)
-            .setContentIntent(pendingIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+        updateStatus(this, text)
     }
 
     private fun createNotificationChannel() {

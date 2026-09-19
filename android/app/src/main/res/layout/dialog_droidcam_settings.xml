@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="#161722">
+    android:background="@drawable/bg_settings_sheet">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -11,400 +11,485 @@
         android:orientation="vertical"
         android:padding="20dp">
 
-        <!-- Header -->
+        <!-- Header Row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
             android:gravity="center_vertical"
+            android:orientation="horizontal"
             android:layout_marginBottom="16dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Studio Control Center"
-                android:textColor="#FFFFFF"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <!-- Section 1: Video Resolution -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="8dp">
 
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="VIDEO RESOLUTION &amp; SENSOR FORMAT"
-                android:textColor="#00E676"
+                android:text="Studio Control Center"
+                android:textColor="@color/text_primary"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/btnCloseSheet"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Close"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                app:tint="@color/text_secondary" />
+        </LinearLayout>
+
+        <!-- Category Tabs: Video / Camera / Stream -->
+        <LinearLayout
+            android:id="@+id/tabBar"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_param_pill"
+            android:orientation="horizontal"
+            android:padding="3dp"
+            android:layout_marginBottom="16dp">
+
+            <Button
+                android:id="@+id/tabVideo"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:backgroundTint="@color/accent_green"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:padding="0dp"
+                android:minWidth="0dp"
+                android:text="Video"
+                android:textColor="@color/black"
                 android:textSize="12sp"
                 android:textStyle="bold" />
 
             <Button
-                android:id="@+id/btnProbeResolutions"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:text="Sensor Probe"
-                android:textSize="10sp"
-                android:textColor="#00E676"
-                android:backgroundTint="#1E2824"
-                android:paddingLeft="10dp"
-                android:paddingRight="10dp" />
+                android:id="@+id/tabCamera"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:backgroundTint="@color/surface_control"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:padding="0dp"
+                android:minWidth="0dp"
+                android:text="Camera"
+                android:textColor="@color/text_primary"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/tabStream"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:backgroundTint="@color/surface_control"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:padding="0dp"
+                android:minWidth="0dp"
+                android:text="Stream"
+                android:textColor="@color/text_primary"
+                android:textSize="12sp" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/txtCurrentResolution"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Target: 1080p FHD (1920x1080)"
-            android:textColor="#E0E0E0"
-            android:textSize="14sp" />
-
-        <HorizontalScrollView
+        <!-- Tab Content 1: VIDEO SECTION -->
+        <LinearLayout
+            android:id="@+id/sectionVideo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:scrollbars="none"
-            android:layout_marginTop="6dp"
-            android:layout_marginBottom="16dp">
+            android:orientation="vertical">
+
+            <!-- Resolution Row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:layout_marginBottom="6dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Resolution"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:id="@+id/txtCurrentResolution"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="1080p FHD (1920x1080)"
+                    android:textColor="@color/accent_green"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnProbeResolutions"
+                    style="@style/Widget.VCamdroid.ContextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="28dp"
+                    android:layout_marginStart="8dp"
+                    android:text="Probe"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btnRes4k"
+                        style="@style/Widget.VCamdroid.ContextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="6dp"
+                        android:text="4K (2160p)" />
+
+                    <Button
+                        android:id="@+id/btnRes1440"
+                        style="@style/Widget.VCamdroid.ContextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="6dp"
+                        android:text="1440p (QHD)" />
+
+                    <Button
+                        android:id="@+id/btnRes1080"
+                        style="@style/Widget.VCamdroid.ContextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="6dp"
+                        android:text="1080p (FHD)" />
+
+                    <Button
+                        android:id="@+id/btnRes720"
+                        style="@style/Widget.VCamdroid.ContextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="6dp"
+                        android:text="720p (HD)" />
+
+                    <Button
+                        android:id="@+id/btnRes480"
+                        style="@style/Widget.VCamdroid.ContextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="480p (SD)" />
+                </LinearLayout>
+            </HorizontalScrollView>
+
+            <!-- Frame Rate Row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:layout_marginBottom="6dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Frame Rate"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/txtCurrentFps"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="60 fps"
+                    android:textColor="@color/accent_green"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <LinearLayout
-                android:id="@+id/resolutionChipsContainer"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
                 android:orientation="horizontal">
 
                 <Button
-                    android:id="@+id/btnRes4k"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:text="4K (2160p)"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#2E303E"
-                    android:layout_marginEnd="6dp" />
+                    android:id="@+id/btnFps24"
+                    style="@style/Widget.VCamdroid.ContextButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:text="24 fps" />
 
                 <Button
-                    android:id="@+id/btnRes1440"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:text="1440p (QHD)"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#2E303E"
-                    android:layout_marginEnd="6dp" />
+                    android:id="@+id/btnFps30"
+                    style="@style/Widget.VCamdroid.ContextButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:text="30 fps" />
 
                 <Button
-                    android:id="@+id/btnRes1080"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:text="1080p (FHD)"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#00E676"
-                    android:layout_marginEnd="6dp" />
+                    android:id="@+id/btnFps48"
+                    style="@style/Widget.VCamdroid.ContextButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:text="48 fps" />
 
                 <Button
-                    android:id="@+id/btnRes720"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:text="720p (HD)"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#2E303E"
-                    android:layout_marginEnd="6dp" />
-
-                <Button
-                    android:id="@+id/btnRes480"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:text="480p (SD)"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#2E303E" />
+                    android:id="@+id/btnFps60"
+                    style="@style/Widget.VCamdroid.ContextButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="60 fps" />
             </LinearLayout>
-        </HorizontalScrollView>
 
-        <!-- Section 2: Video Bitrate & Encoder -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="VIDEO ENCODING &amp; BITRATE"
-            android:textColor="#64B5F6"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="8dp" />
+            <!-- Bitrate Row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:layout_marginBottom="6dp">
 
-        <TextView
-            android:id="@+id/txtCurrentBitrate"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Target Bitrate: 4.0 Mbps (CBR)"
-            android:textColor="#E0E0E0"
-            android:textSize="14sp" />
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Bitrate"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
 
-        <HorizontalScrollView
+                <TextView
+                    android:id="@+id/txtCurrentBitrate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="12 Mbps (CBR)"
+                    android:textColor="@color/accent_green"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btnBitrate25"
+                        style="@style/Widget.VCamdroid.ContextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="6dp"
+                        android:text="2.5 Mbps" />
+
+                    <Button
+                        android:id="@+id/btnBitrate4"
+                        style="@style/Widget.VCamdroid.ContextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="6dp"
+                        android:text="4 Mbps" />
+
+                    <Button
+                        android:id="@+id/btnBitrate8"
+                        style="@style/Widget.VCamdroid.ContextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="6dp"
+                        android:text="8 Mbps" />
+
+                    <Button
+                        android:id="@+id/btnBitrate12"
+                        style="@style/Widget.VCamdroid.ContextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="6dp"
+                        android:text="12 Mbps" />
+
+                    <Button
+                        android:id="@+id/btnBitrate20"
+                        style="@style/Widget.VCamdroid.ContextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="6dp"
+                        android:text="20 Mbps" />
+
+                    <Button
+                        android:id="@+id/btnBitrate40"
+                        style="@style/Widget.VCamdroid.ContextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="40 Mbps" />
+                </LinearLayout>
+            </HorizontalScrollView>
+        </LinearLayout>
+
+        <!-- Tab Content 2: CAMERA SECTION -->
+        <LinearLayout
+            android:id="@+id/sectionCamera"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:scrollbars="none"
-            android:layout_marginTop="6dp"
-            android:layout_marginBottom="16dp">
+            android:orientation="vertical"
+            android:visibility="gone">
 
-            <LinearLayout
-                android:id="@+id/bitrateChipsContainer"
+            <!-- Anti-Flicker -->
+            <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:text="Anti-Flicker Frequency"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="6dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
                 android:orientation="horizontal">
 
                 <Button
-                    android:id="@+id/btnBitrate25"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:text="2.5 Mbps"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#2E303E"
-                    android:layout_marginEnd="6dp" />
+                    android:id="@+id/btnFlickerAuto"
+                    style="@style/Widget.VCamdroid.ContextButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:text="Auto" />
 
                 <Button
-                    android:id="@+id/btnBitrate4"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:text="4 Mbps"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#00E676"
-                    android:layout_marginEnd="6dp" />
+                    android:id="@+id/btnFlicker50"
+                    style="@style/Widget.VCamdroid.ContextButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:text="50 Hz" />
 
                 <Button
-                    android:id="@+id/btnBitrate8"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:text="8 Mbps"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#2E303E"
-                    android:layout_marginEnd="6dp" />
+                    android:id="@+id/btnFlicker60"
+                    style="@style/Widget.VCamdroid.ContextButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:text="60 Hz" />
 
                 <Button
-                    android:id="@+id/btnBitrate12"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:text="12 Mbps"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#2E303E"
-                    android:layout_marginEnd="6dp" />
-
-                <Button
-                    android:id="@+id/btnBitrate20"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:text="20 Mbps"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#2E303E"
-                    android:layout_marginEnd="6dp" />
-
-                <Button
-                    android:id="@+id/btnBitrate40"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:text="40 Mbps"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#2E303E" />
+                    android:id="@+id/btnFlickerOff"
+                    style="@style/Widget.VCamdroid.ContextButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="Off" />
             </LinearLayout>
-        </HorizontalScrollView>
 
-        <!-- Section 2: Frame Rate (Target FPS) -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="FRAME RATE &amp; SENSOR CLOCK"
-            android:textColor="#FFD54F"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="8dp" />
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchFlipH"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Flip horizontal"
+                android:textColor="@color/text_primary" />
 
-        <TextView
-            android:id="@+id/txtCurrentFps"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Target: 30 FPS"
-            android:textColor="#E0E0E0"
-            android:textSize="14sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="6dp"
-            android:layout_marginBottom="16dp">
-
-            <Button
-                android:id="@+id/btnFps24"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="24"
-                android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#2E303E"
-                android:layout_marginEnd="4dp" />
-
-            <Button
-                android:id="@+id/btnFps30"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="30"
-                android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#00E676"
-                android:layout_marginEnd="4dp" />
-
-            <Button
-                android:id="@+id/btnFps48"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="48"
-                android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#2E303E"
-                android:layout_marginEnd="4dp" />
-
-            <Button
-                android:id="@+id/btnFps60"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="60"
-                android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#2E303E" />
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchFlipV"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Flip vertical"
+                android:textColor="@color/text_primary" />
         </LinearLayout>
 
-        <!-- Section 3: Anti-Flicker -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="ANTI-FLICKER (POWER LINE FREQUENCY)"
-            android:textColor="#BA68C8"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="8dp" />
-
+        <!-- Tab Content 3: STREAM & POWER SECTION -->
         <LinearLayout
+            android:id="@+id/sectionStream"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
+            android:orientation="vertical"
+            android:visibility="gone">
 
-            <Button
-                android:id="@+id/btnFlickerAuto"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="Auto"
-                android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#00E676"
-                android:layout_marginEnd="4dp" />
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchScreenOffVideo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:checked="true"
+                android:text="Screen-off Streaming (Power Button)"
+                android:textColor="@color/text_primary" />
 
-            <Button
-                android:id="@+id/btnFlicker50"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="50 Hz"
-                android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#2E303E"
-                android:layout_marginEnd="4dp" />
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchKeepAwake"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:checked="true"
+                android:text="Keep Device Awake While Previewing"
+                android:textColor="@color/text_primary" />
 
-            <Button
-                android:id="@+id/btnFlicker60"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="60 Hz"
-                android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#2E303E"
-                android:layout_marginEnd="4dp" />
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchTally"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:checked="true"
+                android:text="Show tally badge"
+                android:textColor="@color/text_primary" />
 
-            <Button
-                android:id="@+id/btnFlickerOff"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
-                android:text="Off"
-                android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#2E303E" />
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchAiTracking"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:checked="false"
+                android:text="AI face tracking (experimental)"
+                android:textColor="@color/text_primary" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchGestures"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:checked="false"
+                android:text="Palm / pinch gestures (experimental)"
+                android:textColor="@color/text_primary" />
         </LinearLayout>
 
-        <!-- Section 4: Power & Screen Switches -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="POWER &amp; RESILIENCE"
-            android:textColor="#81C784"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="8dp" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchScreenOffVideo"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Screen-Off Streaming (Power Button)"
-            android:textColor="#FFFFFF"
-            android:checked="true"
-            android:layout_marginBottom="6dp" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchKeepAwake"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Keep Device Awake While Previewing"
-            android:textColor="#FFFFFF"
-            android:checked="true"
-            android:layout_marginBottom="6dp" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchRotatePreview"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Rotate Phone Preview 180° (Flip)"
-            android:textColor="#FFFFFF"
-            android:checked="false"
-            android:layout_marginBottom="6dp" />
-
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchTally"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Show Studio Tally Badge (On Air)"
-            android:textColor="#FFFFFF"
-            android:checked="true"
-            android:layout_marginBottom="16dp" />
-
-        <!-- Done Button -->
+        <!-- Bottom Action: Apply Changes -->
         <Button
             android:id="@+id/btnCloseSettings"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:text="Apply &amp; Close"
-            android:textColor="#FFFFFF"
-            android:textStyle="bold"
-            android:backgroundTint="#1976D2" />
+            android:layout_marginTop="12dp"
+            android:backgroundTint="@color/accent_green"
+            android:text="Done"
+            android:textColor="@color/black"
+            android:textSize="14sp"
+            android:textStyle="bold" />
 
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

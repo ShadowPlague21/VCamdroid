@@ -31,15 +31,15 @@
             android:foregroundServiceType="camera" />
         <activity
             android:name=".DroidCamActivity"
-            android:exported="true"
+            android:exported="false"
             android:screenOrientation="portrait" />
         <activity
             android:name=".StreamActivity"
-            android:exported="true"
+            android:exported="false"
             android:screenOrientation="landscape" />
         <activity
             android:name=".LogActivity"
-            android:exported="true" />
+            android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

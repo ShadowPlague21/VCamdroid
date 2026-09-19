@@ -33,7 +33,7 @@ class GestureDetectorHelper(
     private var currentZoom = 1.0f
 
     // Tracking state
-    private var trackingActive = true
+    private var trackingActive = false
     private var lastToggleTimeMs = 0L
     private val TOGGLE_COOLDOWN_MS = 1200L // Prevent flickering toggle
 
@@ -207,7 +207,7 @@ class GestureDetectorHelper(
                             lastToggleTimeMs = now
                             trackingActive = !trackingActive
                             onTrackingToggled(trackingActive)
-                            val statusMsg = if (trackingActive) "🖐️ AI Tracking RESUMED" else "🖐️ AI Tracking PAUSED"
+                            val statusMsg = if (trackingActive) "AI tracking on" else "AI tracking off"
                             onGestureFeedback(statusMsg)
                             Logger.log("GESTURE_AI", statusMsg)
                             return
@@ -234,18 +234,17 @@ class GestureDetectorHelper(
                     isPinching = true
                     initialPinchDistance = dist
                     baseZoomOnPinch = currentZoom
-                    onGestureFeedback("👌 Pinch Zoom Engaged")
+                    onGestureFeedback("Pinch zoom")
                 } else if (isPinching) {
                     if (dist > PINCH_EXIT_THRESHOLD) {
                         isPinching = false
-                        onGestureFeedback("👌 Pinch Zoom Released")
+                        onGestureFeedback("Pinch released")
                     } else {
-                        // Delta distance scales zoom: spreading fingers apart zooms in, squeezing zooms out
                         val delta = (dist - initialPinchDistance) * 8.0f
                         val newZoom = (baseZoomOnPinch + delta).coerceIn(1.0f, 4.0f)
                         onPinchZoom(newZoom)
-                        val formattedZoom = String.format("%.1fx", newZoom)
-                        onGestureFeedback("👌 Zoom: $formattedZoom")
+                        val formattedZoom = String.format("%.1f×", newZoom)
+                        onGestureFeedback("Zoom $formattedZoom")
                     }
                 }
             }

@@ -3,6 +3,8 @@ package com.darusc.vcamdroid
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
 import android.hardware.camera2.CameraMetadata
@@ -15,9 +17,13 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
+import androidx.core.view.WindowCompat
 import com.darusc.vcamdroid.databinding.ActivityDroidcamBinding
+import com.darusc.vcamdroid.databinding.DialogConnectionDetailsBinding
 import com.darusc.vcamdroid.databinding.DialogDroidcamSettingsBinding
 import com.darusc.vcamdroid.droidcam.DroidCamServer
 import com.darusc.vcamdroid.droidcam.DroidCamSettings
@@ -28,11 +34,22 @@ import com.darusc.vcamdroid.service.StreamingService
 import android.graphics.Matrix
 import android.graphics.RectF
 import android.graphics.SurfaceTexture
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.view.TextureView
+import androidx.core.content.ContextCompat
+import com.darusc.vcamdroid.databinding.DialogSensorProbeBinding
+import com.darusc.vcamdroid.databinding.ItemSensorResolutionBinding
+import com.darusc.vcamdroid.util.applySystemBarInsets
+import com.darusc.vcamdroid.util.formatBitrateKbps
 import com.darusc.vcamdroid.video.AutoFitTextureView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener, DroidCamServer.Listener {
@@ -48,6 +65,8 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         settings = DroidCamSettings(this)
         if (settings.keepDeviceAwake) {
@@ -56,9 +75,11 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
         binding = ActivityDroidcamBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        binding.topBar.applySystemBarInsets(bottom = false)
+        binding.bottomControlPalette.applySystemBarInsets(top = false)
 
         if (settings.backgroundStreaming) {
-            StreamingService.startService(this)
+            StreamingService.startService(this, "Waiting for OBS")
         }
 
         droidCamServer = DroidCamServer(this, settings.port, this)
@@ -72,6 +93,14 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         setupOpticalControls()
         setupTouchFocus()
         updateConnectionPill()
+        syncHudToCapabilities()
+
+        streamer.onCapabilitiesChanged = {
+            runOnUiThread {
+                syncHudToCapabilities()
+                configureTransform(binding.cameraPreview.width, binding.cameraPreview.height)
+            }
+        }
 
         checkPermissions()
 
@@ -94,6 +123,22 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             return false
         }
         return true
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != 1001) return
+        val cameraGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.CAMERA
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (cameraGranted) {
+            previewSurface?.let { streamer.onScreenOn(it) }
+        }
     }
 
     private var hideFeedbackRunnable: Runnable? = null
@@ -120,6 +165,10 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             finish()
         }
 
+        binding.connectionPillContainer.setOnClickListener {
+            showConnectionDetailsDialog()
+        }
+
         binding.btnDim.setOnClickListener {
             toggleDimMode(true)
         }
@@ -128,20 +177,27 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             toggleDimMode(false)
         }
 
-        binding.btnSettings.setOnClickListener {
+        binding.btnSensorProbeQuick.setOnClickListener {
+            showCameraProbeDialog()
+        }
+
+        binding.btnBottomSettings.setOnClickListener {
             showStudioSettingsSheet()
         }
 
-        // AI Tracking Toggle Button
+        binding.btnCenterAction.setOnClickListener {
+            showConnectionDetailsDialog()
+        }
+
         fun updateAiTrackUI(enabled: Boolean) {
-            if (enabled) {
-                binding.btnAiTrack.text = "AI ON"
-                binding.btnAiTrack.setBackgroundColor(Color.parseColor("#00E676"))
-                binding.btnAiTrack.setTextColor(Color.BLACK)
-            } else {
-                binding.btnAiTrack.text = "AI OFF"
-                binding.btnAiTrack.setBackgroundColor(Color.parseColor("#2E303E"))
-                binding.btnAiTrack.setTextColor(Color.WHITE)
+            binding.valPillAi.text = if (enabled) "ON" else "OFF"
+            binding.lblPillAi.setTextColor(
+                ContextCompat.getColor(this, if (enabled) R.color.accent_green else R.color.text_secondary)
+            )
+            binding.btnAiTrack.setBackgroundResource(
+                if (enabled) R.drawable.bg_param_pill_selected else R.drawable.bg_param_pill
+            )
+            if (!enabled) {
                 binding.faceReticle.visibility = View.GONE
             }
         }
@@ -151,11 +207,9 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         binding.btnAiTrack.setOnClickListener {
             val newState = streamer.toggleAiTracking()
             updateAiTrackUI(newState)
-            showGestureFeedbackToast(if (newState) "🤖 AI Tracking Enabled" else "⏸️ AI Tracking Paused")
+            showGestureFeedbackToast(if (newState) "AI tracking on" else "AI tracking off")
         }
 
-
-        // Callbacks for Gestures and Face Tracking
         streamer.onAiTrackingStateChanged = { active ->
             runOnUiThread {
                 updateAiTrackUI(active)
@@ -168,29 +222,141 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             }
         }
 
-        streamer.onAiFaceTrackingUpdate = { _, _ ->
+        streamer.onAiFaceTrackingUpdate = { hasFace, bounds ->
             runOnUiThread {
-                binding.faceReticle.visibility = View.GONE
+                updateFaceReticle(hasFace, bounds)
             }
+        }
+
+        updateFlipPills()
+        binding.btnFlipH.setOnClickListener {
+            applyPreviewFlips(!settings.flipHorizontal, settings.flipVertical)
+        }
+        binding.btnFlipV.setOnClickListener {
+            applyPreviewFlips(settings.flipHorizontal, !settings.flipVertical)
         }
     }
 
-    private fun showCard(activeCard: CardView?, activeButton: Button?) {
-        val allCards = listOf(binding.isoCard, binding.evCard, binding.zoomCard, binding.focusCard)
-        val allButtons = listOf(binding.btnIsoToggle, binding.btnEvToggle, binding.btnZoomToggle, binding.btnFocusToggle)
+    private fun updateFlipPills() {
+        val h = settings.flipHorizontal
+        val v = settings.flipVertical
+        binding.valPillFlipH.text = if (h) "ON" else "OFF"
+        binding.valPillFlipV.text = if (v) "ON" else "OFF"
+        binding.lblPillFlipH.setTextColor(
+            ContextCompat.getColor(this, if (h) R.color.accent_green else R.color.text_secondary)
+        )
+        binding.lblPillFlipV.setTextColor(
+            ContextCompat.getColor(this, if (v) R.color.accent_green else R.color.text_secondary)
+        )
+        binding.btnFlipH.setBackgroundResource(
+            if (h) R.drawable.bg_param_pill_selected else R.drawable.bg_param_pill
+        )
+        binding.btnFlipV.setBackgroundResource(
+            if (v) R.drawable.bg_param_pill_selected else R.drawable.bg_param_pill
+        )
+    }
+
+    private fun applyPreviewFlips(horizontal: Boolean, vertical: Boolean) {
+        settings.flipHorizontal = horizontal
+        settings.flipVertical = vertical
+        streamer.setPreviewFlips(horizontal, vertical)
+        updateFlipPills()
+        configureTransform(binding.cameraPreview.width, binding.cameraPreview.height)
+        val label = buildString {
+            if (horizontal) append("Flip H")
+            if (horizontal && vertical) append(" + ")
+            if (vertical) append("Flip V")
+            if (!horizontal && !vertical) append("Flips off")
+        }
+        showGestureFeedbackToast(label)
+    }
+
+    private fun updateFaceReticle(hasFace: Boolean, bounds: RectF?) {
+        if (!hasFace || bounds == null || !settings.isAiTrackingEnabled) {
+            binding.faceReticle.visibility = View.GONE
+            return
+        }
+        val preview = binding.cameraPreview
+        val vw = preview.width.toFloat()
+        val vh = preview.height.toFloat()
+        if (vw <= 0f || vh <= 0f) return
+
+        val rot = streamer.sensorOrientation
+        fun mapPoint(nx: Float, ny: Float): Pair<Float, Float> {
+            val (bx, by) = when (rot) {
+                90 -> Pair(1f - ny, nx)
+                180 -> Pair(1f - nx, 1f - ny)
+                270 -> Pair(ny, 1f - nx)
+                else -> Pair(nx, ny)
+            }
+            val pts = floatArrayOf(bx * vw, by * vh)
+            val matrix = Matrix()
+            preview.getTransform(matrix)
+            matrix.mapPoints(pts)
+            return Pair(preview.x + pts[0], preview.y + pts[1])
+        }
+
+        val (x1, y1) = mapPoint(bounds.left, bounds.top)
+        val (x2, y2) = mapPoint(bounds.right, bounds.bottom)
+        val left = min(x1, x2)
+        val top = min(y1, y2)
+        val rw = abs(x2 - x1).toInt().coerceAtLeast(48)
+        val rh = abs(y2 - y1).toInt().coerceAtLeast(48)
+        val lp = binding.faceReticle.layoutParams
+        lp.width = rw
+        lp.height = rh
+        binding.faceReticle.layoutParams = lp
+        binding.faceReticle.x = left
+        binding.faceReticle.y = top
+        binding.faceReticle.visibility = View.VISIBLE
+    }
+
+    private fun showCard(activeCard: CardView?, activePill: View?) {
+        val allCards = listOf(
+            binding.isoCard,
+            binding.evCard,
+            binding.zoomCard,
+            binding.focusCard,
+            binding.wbCard,
+            binding.lensCard
+        )
+        val allPills = listOf(
+            binding.btnIsoToggle,
+            binding.btnEvToggle,
+            binding.btnZoomToggle,
+            binding.btnFocusToggle,
+            binding.btnAwb,
+            binding.btnSwitchLens
+        )
 
         val isAlreadyOpen = activeCard?.visibility == View.VISIBLE
 
-        allCards.forEach { it.visibility = View.GONE }
-        allButtons.forEach {
-            it.setBackgroundColor(Color.parseColor("#252632"))
-            it.setTextColor(Color.WHITE)
+        allCards.forEach { card ->
+            if (card.visibility == View.VISIBLE) {
+                card.animate()
+                    .alpha(0f)
+                    .translationY(24f)
+                    .setDuration(120)
+                    .withEndAction { card.visibility = View.GONE }
+                    .start()
+            } else {
+                card.visibility = View.GONE
+            }
+        }
+        allPills.forEach {
+            it.setBackgroundResource(R.drawable.bg_param_pill)
         }
 
-        if (!isAlreadyOpen && activeCard != null && activeButton != null) {
+        if (!isAlreadyOpen && activeCard != null && activePill != null) {
+            activeCard.alpha = 0f
+            activeCard.translationY = 24f
             activeCard.visibility = View.VISIBLE
-            activeButton.setBackgroundColor(Color.parseColor("#3F51B5"))
-            activeButton.setTextColor(Color.WHITE)
+            activeCard.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(160)
+                .start()
+            activePill.setBackgroundResource(R.drawable.bg_param_pill_selected)
         }
     }
 
@@ -255,51 +421,121 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     }
 
     private fun setupOpticalControls() {
-        // 1. Lens Switch
+        // --- 1. Lens Switch Overlay ---
         binding.btnSwitchLens.setOnClickListener {
-            isBackCamera = !isBackCamera
-            val lensName = if (isBackCamera) "Back" else "Front"
-            binding.btnSwitchLens.text = "Lens ($lensName)"
-            if (droidCamServer.isStreaming) {
-                streamer.stopStream()
-                streamer.startStream(streamer.currentFormat, streamer.currentWidth, streamer.currentHeight, settings.targetFps, isBackCamera)
-            }
+            showCard(binding.lensCard, binding.btnSwitchLens)
         }
 
-        // 2. Torch / Flash
+        fun applyLensSwitch(isBack: Boolean) {
+            isBackCamera = isBack
+            val title = if (isBack) "Rear Sensor (Wide)" else "Front Sensor"
+            val pill = if (isBack) "REAR" else "FRONT"
+            binding.txtLensValue.text = title
+            binding.valPillLens.text = pill
+            if (isBack) {
+                binding.btnLensBack.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+                binding.btnLensFront.setTextColor(Color.WHITE)
+            } else {
+                binding.btnLensFront.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+                binding.btnLensBack.setTextColor(Color.WHITE)
+            }
+            streamer.switchLens(isBack)
+        }
+        binding.btnLensBack.setOnClickListener { applyLensSwitch(true) }
+        binding.btnLensFront.setOnClickListener { applyLensSwitch(false) }
+
+        // --- 2. Torch / Flash ---
         binding.btnTorch.setOnClickListener {
             val newState = !streamer.isTorchOn
             streamer.setTorch(newState)
             if (newState) {
-                binding.btnTorch.text = "Flash ON"
-                binding.btnTorch.setBackgroundColor(Color.parseColor("#FFD54F"))
-                binding.btnTorch.setTextColor(Color.BLACK)
+                binding.btnTorch.setColorFilter(Color.parseColor("#FFD54F"))
             } else {
-                binding.btnTorch.text = "Flash OFF"
-                binding.btnTorch.setBackgroundColor(Color.parseColor("#252632"))
-                binding.btnTorch.setTextColor(Color.WHITE)
+                binding.btnTorch.setColorFilter(Color.WHITE)
             }
         }
 
-        // 3. White Balance Cycle
-        val awbModes = listOf(
-            Pair(CameraMetadata.CONTROL_AWB_MODE_AUTO, "AWB: Auto"),
-            Pair(CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT, "AWB: Sun"),
-            Pair(CameraMetadata.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT, "AWB: Cloud"),
-            Pair(CameraMetadata.CONTROL_AWB_MODE_FLUORESCENT, "AWB: Fluor"),
-            Pair(CameraMetadata.CONTROL_AWB_MODE_INCANDESCENT, "AWB: Tungsten")
-        )
-        var awbIndex = 0
+        // --- 3. White Balance Overlay ---
         binding.btnAwb.setOnClickListener {
-            awbIndex = (awbIndex + 1) % awbModes.size
-            val (mode, label) = awbModes[awbIndex]
-            streamer.setAwbMode(mode)
-            binding.btnAwb.text = label
+            showCard(binding.wbCard, binding.btnAwb)
         }
 
-        // 4. ISO Sensitivity (Smooth Non-Snap Slider + Direct Entry)
+        fun highlightWbPreset(activeBtn: Button?) {
+            listOf(binding.btnWbAuto, binding.btnWbSun, binding.btnWbCloud, binding.btnWbFluor, binding.btnWbTungsten).forEach {
+                it.setTextColor(Color.WHITE)
+            }
+            activeBtn?.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+        }
+
+        fun applyManualKelvin(kelvin: Int, activeBtn: Button?) {
+            val k = kelvin.coerceIn(2000, 8000)
+            settings.lastKelvin = k
+            settings.isManualWb = true
+            streamer.setWhiteBalanceKelvin(k)
+            binding.txtWbValue.text = "${k}K"
+            binding.valPillWb.text = "${k}K"
+            binding.seekWb.isEnabled = true
+            binding.seekWb.progress = k - 2000
+            highlightWbPreset(activeBtn)
+        }
+
+        fun applyAutoWb() {
+            settings.isManualWb = false
+            streamer.setAutoWhiteBalance()
+            binding.txtWbValue.text = "AUTO (AWB)"
+            binding.valPillWb.text = "AUTO"
+            binding.seekWb.isEnabled = false
+            highlightWbPreset(binding.btnWbAuto)
+        }
+
+        binding.btnWbAuto.setOnClickListener { applyAutoWb() }
+        binding.btnWbSun.setOnClickListener { applyManualKelvin(5200, binding.btnWbSun) }
+        binding.btnWbCloud.setOnClickListener { applyManualKelvin(6500, binding.btnWbCloud) }
+        binding.btnWbFluor.setOnClickListener { applyManualKelvin(4000, binding.btnWbFluor) }
+        binding.btnWbTungsten.setOnClickListener { applyManualKelvin(3200, binding.btnWbTungsten) }
+
+        binding.seekWb.max = 6000
+        binding.seekWb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                val k = 2000 + progress
+                binding.txtWbValue.text = "${k}K"
+                binding.valPillWb.text = "${k}K"
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                val k = 2000 + (seekBar?.progress ?: 0)
+                applyManualKelvin(k, null)
+            }
+        })
+
+        if (settings.isManualWb) {
+            applyManualKelvin(settings.lastKelvin, null)
+        } else {
+            applyAutoWb()
+        }
+
+        // --- 4. ISO Sensitivity (Smooth Non-Snap Slider + Direct Entry + Nudge) ---
         binding.btnIsoToggle.setOnClickListener {
             showCard(binding.isoCard, binding.btnIsoToggle)
+        }
+
+        fun updateIsoDisplay(iso: Int, isAuto: Boolean = false) {
+            val text = if (isAuto) "AUTO" else "$iso"
+            binding.txtIsoValue.text = text
+            binding.valPillIso.text = text
+            binding.lblPillIso.setTextColor(if (isAuto) ContextCompat.getColor(this, R.color.text_secondary) else ContextCompat.getColor(this, R.color.accent_green))
+        }
+
+        fun applyIsoChange(iso: Int) {
+            val clamped = iso.coerceIn(streamer.minIso, streamer.maxIso)
+            streamer.setIso(clamped)
+            val frac = if (streamer.maxIso > streamer.minIso) (clamped - streamer.minIso).toFloat() / (streamer.maxIso - streamer.minIso).toFloat() else 0f
+            binding.seekIso.progress = (frac * 10000).toInt()
+            updateIsoDisplay(clamped, false)
+            binding.btnIsoAuto.text = "MANUAL"
+            binding.btnIsoAuto.setBackgroundColor(ContextCompat.getColor(this, R.color.exposure_amber))
+            binding.btnIsoAuto.setTextColor(Color.BLACK)
         }
 
         binding.seekIso.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -308,10 +544,9 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
                     val frac = progress.toFloat() / 10000f
                     val iso = (streamer.minIso + frac * (streamer.maxIso - streamer.minIso)).roundToInt()
                     streamer.setIso(iso)
-                    binding.txtIsoValue.text = "ISO $iso"
-                    binding.btnIsoToggle.text = "ISO $iso"
+                    updateIsoDisplay(iso, false)
                     binding.btnIsoAuto.text = "MANUAL"
-                    binding.btnIsoAuto.setBackgroundColor(Color.parseColor("#FF9800"))
+                    binding.btnIsoAuto.setBackgroundColor(ContextCompat.getColor(this@DroidCamActivity, R.color.exposure_amber))
                     binding.btnIsoAuto.setTextColor(Color.BLACK)
                 }
             }
@@ -324,21 +559,27 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             streamer.setAutoIso(willBeAuto)
             if (willBeAuto) {
                 binding.btnIsoAuto.text = "AUTO"
-                binding.btnIsoAuto.setBackgroundColor(Color.parseColor("#00E676"))
+                binding.btnIsoAuto.setBackgroundColor(ContextCompat.getColor(this, R.color.accent_green))
                 binding.btnIsoAuto.setTextColor(Color.BLACK)
-                binding.txtIsoValue.text = "ISO Auto [${streamer.actualSensorIso}]"
-                binding.btnIsoToggle.text = "ISO Auto"
+                updateIsoDisplay(streamer.actualSensorIso, true)
             } else {
                 binding.btnIsoAuto.text = "MANUAL"
-                binding.btnIsoAuto.setBackgroundColor(Color.parseColor("#FF9800"))
+                binding.btnIsoAuto.setBackgroundColor(ContextCompat.getColor(this, R.color.exposure_amber))
                 binding.btnIsoAuto.setTextColor(Color.BLACK)
                 streamer.setIso(streamer.currentIso)
-                binding.txtIsoValue.text = "ISO ${streamer.currentIso}"
-                binding.btnIsoToggle.text = "ISO ${streamer.currentIso}"
+                updateIsoDisplay(streamer.currentIso, false)
             }
         }
 
-        binding.txtIsoValue.setOnClickListener {
+        binding.btnIsoMinus.setOnClickListener {
+            applyIsoChange(streamer.currentIso - 100)
+        }
+
+        binding.btnIsoPlus.setOnClickListener {
+            applyIsoChange(streamer.currentIso + 100)
+        }
+
+        val openIsoDialog = {
             showDirectNumericEditDialog(
                 title = "Direct ISO Entry",
                 currentValueStr = "${streamer.currentIso}",
@@ -347,21 +588,31 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
                 maxVal = streamer.maxIso.toFloat(),
                 isInteger = true
             ) { value ->
-                val iso = value.roundToInt()
-                streamer.setIso(iso)
-                val frac = (iso - streamer.minIso).toFloat() / (streamer.maxIso - streamer.minIso).toFloat()
-                binding.seekIso.progress = (frac * 10000).toInt()
-                binding.txtIsoValue.text = "ISO $iso"
-                binding.btnIsoToggle.text = "ISO $iso"
-                binding.btnIsoAuto.text = "MANUAL"
-                binding.btnIsoAuto.setBackgroundColor(Color.parseColor("#FF9800"))
-                binding.btnIsoAuto.setTextColor(Color.BLACK)
+                applyIsoChange(value.roundToInt())
             }
         }
+        binding.txtIsoValue.setOnClickListener { openIsoDialog() }
+        binding.btnIsoDirect.setOnClickListener { openIsoDialog() }
 
-        // 5. EV Compensation (Smooth Non-Snap Slider + Direct Entry)
+        // --- 5. EV Compensation (Centered Zero Scale + Nudge + Direct Entry) ---
         binding.btnEvToggle.setOnClickListener {
             showCard(binding.evCard, binding.btnEvToggle)
+        }
+
+        fun updateEvDisplay(evReal: Float) {
+            val str = String.format("%+.1f", evReal)
+            binding.txtEvValue.text = str
+            binding.valPillEv.text = str
+        }
+
+        fun applyEvSteps(steps: Int) {
+            val clamped = steps.coerceIn(streamer.minExposureCompensation, streamer.maxExposureCompensation)
+            streamer.setExposureCompensation(clamped)
+            val evReal = clamped * streamer.exposureCompensationStep
+            val span = streamer.maxExposureCompensation - streamer.minExposureCompensation
+            val frac = if (span > 0) (clamped - streamer.minExposureCompensation).toFloat() / span.toFloat() else 0.5f
+            binding.seekEv.progress = (frac * 10000).toInt()
+            updateEvDisplay(evReal)
         }
 
         binding.seekEv.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -373,35 +624,23 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
                     val evVal = (min + frac * (max - min)).roundToInt()
                     streamer.setExposureCompensation(evVal)
                     val evReal = evVal * streamer.exposureCompensationStep
-                    binding.txtEvValue.text = String.format("%+.1f EV", evReal)
-                    binding.btnEvToggle.text = String.format("EV %+.1f", evReal)
+                    updateEvDisplay(evReal)
                 }
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        binding.txtEvValue.setOnClickListener {
-            val curEvReal = streamer.currentExposureCompensation * streamer.exposureCompensationStep
-            val minEvReal = streamer.minExposureCompensation * streamer.exposureCompensationStep
-            val maxEvReal = streamer.maxExposureCompensation * streamer.exposureCompensationStep
-            showDirectNumericEditDialog(
-                title = "Direct EV Entry",
-                currentValueStr = String.format("%.1f", curEvReal),
-                unitLabel = "EV",
-                minVal = minEvReal,
-                maxVal = maxEvReal,
-                isInteger = false
-            ) { value ->
-                val step = if (streamer.exposureCompensationStep > 0) streamer.exposureCompensationStep else 0.5f
-                val evSteps = (value / step).roundToInt().coerceIn(streamer.minExposureCompensation, streamer.maxExposureCompensation)
-                streamer.setExposureCompensation(evSteps)
-                val evReal = evSteps * step
-                val frac = (evSteps - streamer.minExposureCompensation).toFloat() / (streamer.maxExposureCompensation - streamer.minExposureCompensation).toFloat()
-                binding.seekEv.progress = (frac * 10000).toInt()
-                binding.txtEvValue.text = String.format("%+.1f EV", evReal)
-                binding.btnEvToggle.text = String.format("EV %+.1f", evReal)
-            }
+        binding.btnEvMinus.setOnClickListener {
+            applyEvSteps(streamer.currentExposureCompensation - 1)
+        }
+
+        binding.btnEvReset.setOnClickListener {
+            applyEvSteps(0)
+        }
+
+        binding.btnEvPlus.setOnClickListener {
+            applyEvSteps(streamer.currentExposureCompensation + 1)
         }
 
         binding.btnAeLock.setOnClickListener {
@@ -416,39 +655,44 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             }
         }
 
-        binding.btnEvReset.setOnClickListener {
-            streamer.setExposureCompensation(0)
-            val frac = (0 - streamer.minExposureCompensation).toFloat() / (streamer.maxExposureCompensation - streamer.minExposureCompensation).toFloat()
-            binding.seekEv.progress = (frac * 10000).toInt()
-            binding.txtEvValue.text = "0.0 EV"
-            binding.btnEvToggle.text = "EV 0.0"
+        val openEvDialog = {
+            val curEvReal = streamer.currentExposureCompensation * streamer.exposureCompensationStep
+            val minEvReal = streamer.minExposureCompensation * streamer.exposureCompensationStep
+            val maxEvReal = streamer.maxExposureCompensation * streamer.exposureCompensationStep
+            showDirectNumericEditDialog(
+                title = "Direct EV Entry",
+                currentValueStr = String.format("%.1f", curEvReal),
+                unitLabel = "EV",
+                minVal = minEvReal,
+                maxVal = maxEvReal,
+                isInteger = false
+            ) { value ->
+                val step = if (streamer.exposureCompensationStep > 0) streamer.exposureCompensationStep else 0.5f
+                val evSteps = (value / step).roundToInt()
+                applyEvSteps(evSteps)
+            }
         }
+        binding.txtEvValue.setOnClickListener { openEvDialog() }
+        binding.btnEvDirect.setOnClickListener { openEvDialog() }
 
-        binding.btnEvMinus.setOnClickListener {
-            val cur = streamer.currentExposureCompensation
-            val next = (cur - 1).coerceAtLeast(streamer.minExposureCompensation)
-            streamer.setExposureCompensation(next)
-            val evReal = next * streamer.exposureCompensationStep
-            val frac = (next - streamer.minExposureCompensation).toFloat() / (streamer.maxExposureCompensation - streamer.minExposureCompensation).toFloat()
-            binding.seekEv.progress = (frac * 10000).toInt()
-            binding.txtEvValue.text = String.format("%+.1f EV", evReal)
-            binding.btnEvToggle.text = String.format("EV %+.1f", evReal)
-        }
-
-        binding.btnEvPlus.setOnClickListener {
-            val cur = streamer.currentExposureCompensation
-            val next = (cur + 1).coerceAtMost(streamer.maxExposureCompensation)
-            streamer.setExposureCompensation(next)
-            val evReal = next * streamer.exposureCompensationStep
-            val frac = (next - streamer.minExposureCompensation).toFloat() / (streamer.maxExposureCompensation - streamer.minExposureCompensation).toFloat()
-            binding.seekEv.progress = (frac * 10000).toInt()
-            binding.txtEvValue.text = String.format("%+.1f EV", evReal)
-            binding.btnEvToggle.text = String.format("EV %+.1f", evReal)
-        }
-
-        // 6. Zoom (Smooth Non-Snap Slider + Direct Entry)
+        // --- 6. Zoom (Smooth Continuous + Presets + Direct Entry) ---
         binding.btnZoomToggle.setOnClickListener {
             showCard(binding.zoomCard, binding.btnZoomToggle)
+        }
+
+        fun updateZoomDisplay(z: Float) {
+            val str = String.format("%.1f×", z)
+            binding.txtZoomValue.text = str
+            binding.valPillZoom.text = str
+        }
+
+        fun applyZoom(z: Float) {
+            val clamped = z.coerceIn(streamer.minZoomFactor, streamer.maxZoomFactor)
+            streamer.setZoom(clamped)
+            val span = streamer.maxZoomFactor - streamer.minZoomFactor
+            val frac = if (span > 0f) (clamped - streamer.minZoomFactor) / span else 0f
+            binding.seekZoom.progress = (frac * 10000).toInt()
+            updateZoomDisplay(clamped)
         }
 
         binding.seekZoom.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -459,59 +703,68 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
                     val frac = progress.toFloat() / 10000f
                     val z = minZ + frac * (maxZ - minZ)
                     streamer.setZoom(z)
-                    binding.txtZoomValue.text = String.format("%.2fx", z)
-                    binding.btnZoomToggle.text = String.format("Zoom %.1fx", z)
+                    updateZoomDisplay(z)
                 }
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        binding.txtZoomValue.setOnClickListener {
+        binding.btnZoom05x.setOnClickListener { applyZoom(0.5f) }
+        binding.btnZoom1x.setOnClickListener { applyZoom(1.0f) }
+        binding.btnZoom2x.setOnClickListener { applyZoom(2.0f) }
+        binding.btnZoom3x.setOnClickListener { applyZoom(3.0f) }
+        binding.btnZoom5x.setOnClickListener { applyZoom(5.0f) }
+        binding.btnZoom10x.setOnClickListener { applyZoom(10.0f) }
+
+        val openZoomDialog = {
             showDirectNumericEditDialog(
                 title = "Direct Zoom Entry",
                 currentValueStr = String.format("%.2f", streamer.currentZoom),
-                unitLabel = "x",
+                unitLabel = "×",
                 minVal = streamer.minZoomFactor,
                 maxVal = streamer.maxZoomFactor,
                 isInteger = false
-            ) { value ->
-                streamer.setZoom(value)
-                val frac = (value - streamer.minZoomFactor) / (streamer.maxZoomFactor - streamer.minZoomFactor)
-                binding.seekZoom.progress = (frac * 10000).toInt()
-                binding.txtZoomValue.text = String.format("%.2fx", value)
-                binding.btnZoomToggle.text = String.format("Zoom %.1fx", value)
-            }
+            ) { value -> applyZoom(value) }
         }
+        binding.txtZoomValue.setOnClickListener { openZoomDialog() }
 
-        binding.btnZoom1x.setOnClickListener {
-            streamer.setZoom(1.0f)
-            binding.seekZoom.progress = 0
-            binding.txtZoomValue.text = "1.0x"
-            binding.btnZoomToggle.text = "Zoom 1.0x"
-        }
-
-        binding.btnZoom2x.setOnClickListener {
-            val z = 2.0f.coerceIn(streamer.minZoomFactor, streamer.maxZoomFactor)
-            streamer.setZoom(z)
-            val frac = (z - streamer.minZoomFactor) / (streamer.maxZoomFactor - streamer.minZoomFactor)
-            binding.seekZoom.progress = (frac * 10000).toInt()
-            binding.txtZoomValue.text = String.format("%.1fx", z)
-            binding.btnZoomToggle.text = String.format("Zoom %.1fx", z)
-        }
-
-        binding.btnZoom5x.setOnClickListener {
-            val z = 5.0f.coerceIn(streamer.minZoomFactor, streamer.maxZoomFactor)
-            streamer.setZoom(z)
-            val frac = (z - streamer.minZoomFactor) / (streamer.maxZoomFactor - streamer.minZoomFactor)
-            binding.seekZoom.progress = (frac * 10000).toInt()
-            binding.txtZoomValue.text = String.format("%.1fx", z)
-            binding.btnZoomToggle.text = String.format("Zoom %.1fx", z)
-        }
-
-        // 7. Focus Mode & Distance (Smooth Focus Puller + Direct Entry)
+        // --- 7. Focus (Distance Puller + Modes AF-S / AF-C / MF) ---
         binding.btnFocusToggle.setOnClickListener {
             showCard(binding.focusCard, binding.btnFocusToggle)
+        }
+
+        fun updateFocusDisplay(text: String) {
+            binding.txtFocusValue.text = text
+            binding.valPillFocus.text = text
+        }
+
+        fun setFocusSegment(activeBtn: Button) {
+            listOf(binding.btnFocusAfs, binding.btnFocusAuto, binding.btnFocusMf).forEach {
+                it.setBackgroundColor(Color.parseColor("#222430"))
+                it.setTextColor(Color.WHITE)
+            }
+            activeBtn.setBackgroundColor(Color.parseColor("#00E676"))
+            activeBtn.setTextColor(Color.BLACK)
+        }
+
+        binding.btnFocusAfs.setOnClickListener {
+            streamer.setAutoAf(CameraMetadata.CONTROL_AF_MODE_AUTO)
+            setFocusSegment(binding.btnFocusAfs)
+            updateFocusDisplay("AF-S")
+        }
+
+        binding.btnFocusAuto.setOnClickListener {
+            streamer.setAutoAf(CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+            setFocusSegment(binding.btnFocusAuto)
+            updateFocusDisplay("AF-C")
+        }
+
+        binding.btnFocusMf.setOnClickListener {
+            setFocusSegment(binding.btnFocusMf)
+            val dist = binding.seekFocus.progress.toFloat() / 10000f * streamer.maxFocusDistance
+            streamer.setFocusDistance(dist)
+            updateFocusDisplay(String.format("%.2f dpt", dist))
         }
 
         binding.seekFocus.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -520,20 +773,17 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
                     val frac = progress.toFloat() / 10000f
                     val dist = frac * streamer.maxFocusDistance
                     streamer.setFocusDistance(dist)
-                    binding.txtFocusValue.text = String.format("%.2f dpt", dist)
-                    binding.btnFocusToggle.text = "MF: Active"
-                    binding.btnFocusAuto.text = "MANUAL"
-                    binding.btnFocusAuto.setBackgroundColor(Color.parseColor("#FF9800"))
-                    binding.btnFocusAuto.setTextColor(Color.BLACK)
+                    setFocusSegment(binding.btnFocusMf)
+                    updateFocusDisplay(String.format("%.2f dpt", dist))
                 }
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        binding.txtFocusValue.setOnClickListener {
+        binding.btnFocusDirect.setOnClickListener {
             showDirectNumericEditDialog(
-                title = "Direct Focus Entry",
+                title = "Direct Focus Distance",
                 currentValueStr = String.format("%.2f", streamer.currentFocusDistance),
                 unitLabel = "diopters (0 = inf)",
                 minVal = 0.0f,
@@ -543,35 +793,29 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
                 streamer.setFocusDistance(value)
                 val frac = if (streamer.maxFocusDistance > 0f) value / streamer.maxFocusDistance else 0f
                 binding.seekFocus.progress = (frac * 10000).toInt()
-                binding.txtFocusValue.text = String.format("%.2f dpt", value)
-                binding.btnFocusToggle.text = "MF: Active"
-                binding.btnFocusAuto.text = "MANUAL"
-                binding.btnFocusAuto.setBackgroundColor(Color.parseColor("#FF9800"))
-                binding.btnFocusAuto.setTextColor(Color.BLACK)
+                setFocusSegment(binding.btnFocusMf)
+                updateFocusDisplay(String.format("%.2f dpt", value))
             }
-        }
-
-        var focusModeIdx = 0
-        val focusModes = listOf(
-            Pair("AF-C", CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO),
-            Pair("AF-S", CameraMetadata.CONTROL_AF_MODE_AUTO),
-            Pair("MACRO", CameraMetadata.CONTROL_AF_MODE_MACRO)
-        )
-        binding.btnFocusAuto.setOnClickListener {
-            focusModeIdx = (focusModeIdx + 1) % focusModes.size
-            val (name, mode) = focusModes[focusModeIdx]
-            streamer.setAutoAf(mode)
-            binding.btnFocusAuto.text = name
-            binding.btnFocusAuto.setBackgroundColor(Color.parseColor("#00E676"))
-            binding.btnFocusAuto.setTextColor(Color.BLACK)
-            binding.btnFocusToggle.text = "Focus: $name"
-            binding.txtFocusValue.text = "$name"
         }
     }
 
     private fun setupTouchFocus() {
         binding.cameraPreview.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_DOWN) {
+                val anyCardOpen = listOf(
+                    binding.isoCard,
+                    binding.evCard,
+                    binding.zoomCard,
+                    binding.focusCard,
+                    binding.wbCard,
+                    binding.lensCard
+                ).any { it.visibility == View.VISIBLE }
+
+                if (anyCardOpen) {
+                    showCard(null, null)
+                    return@setOnTouchListener true
+                }
+
                 val x = event.x
                 val y = event.y
 
@@ -605,14 +849,52 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     }
 
     private fun showStudioSettingsSheet() {
+        showCard(null, null)
         val dialog = BottomSheetDialog(this)
         val sheetBinding = DialogDroidcamSettingsBinding.inflate(layoutInflater)
         dialog.setContentView(sheetBinding.root)
 
+        val selectedChip = ContextCompat.getColor(this, R.color.accent_green)
+        val idleChip = ContextCompat.getColor(this, R.color.surface_control)
+        val selectedChipText = ContextCompat.getColor(this, R.color.black)
+        val idleChipText = ContextCompat.getColor(this, R.color.text_primary)
+
+        fun styleChip(btn: Button, selected: Boolean) {
+            btn.setBackgroundResource(if (selected) R.drawable.bg_param_pill_selected else R.drawable.bg_param_pill)
+            btn.backgroundTintList = null
+            btn.setTextColor(if (selected) ContextCompat.getColor(this, R.color.accent_green) else idleChipText)
+        }
+
+        fun switchTab(activeBtn: Button, activeSection: View) {
+            sheetBinding.sectionVideo.visibility = View.GONE
+            sheetBinding.sectionCamera.visibility = View.GONE
+            sheetBinding.sectionStream.visibility = View.GONE
+
+            listOf(sheetBinding.tabVideo, sheetBinding.tabCamera, sheetBinding.tabStream).forEach {
+                it.setBackgroundResource(R.drawable.bg_param_pill)
+                it.backgroundTintList = android.content.res.ColorStateList.valueOf(idleChip)
+                it.setTextColor(idleChipText)
+            }
+
+            activeSection.visibility = View.VISIBLE
+            activeBtn.setBackgroundResource(R.drawable.bg_param_pill_selected)
+            activeBtn.backgroundTintList = android.content.res.ColorStateList.valueOf(selectedChip)
+            activeBtn.setTextColor(selectedChipText)
+        }
+
+        sheetBinding.tabVideo.setOnClickListener { switchTab(sheetBinding.tabVideo, sheetBinding.sectionVideo) }
+        sheetBinding.tabCamera.setOnClickListener { switchTab(sheetBinding.tabCamera, sheetBinding.sectionCamera) }
+        sheetBinding.tabStream.setOnClickListener { switchTab(sheetBinding.tabStream, sheetBinding.sectionStream) }
+        switchTab(sheetBinding.tabVideo, sheetBinding.sectionVideo)
+
+        sheetBinding.btnCloseSheet.setOnClickListener {
+            dialog.dismiss()
+        }
+
         // Resolutions
         val curW = settings.targetResolutionWidth
         val curH = settings.targetResolutionHeight
-        sheetBinding.txtCurrentResolution.text = "Target: ${settings.getResolutionLabel()}"
+        sheetBinding.txtCurrentResolution.text = settings.getResolutionLabel()
 
         val resMap = mapOf(
             sheetBinding.btnRes4k to Pair(3840, 2160),
@@ -625,24 +907,17 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         fun updateResolutionUI(selectedW: Int, selectedH: Int) {
             settings.targetResolutionWidth = selectedW
             settings.targetResolutionHeight = selectedH
-            sheetBinding.txtCurrentResolution.text = "Target: ${settings.getResolutionLabel()}"
+            sheetBinding.txtCurrentResolution.text = settings.getResolutionLabel()
 
             resMap.forEach { (btn, res) ->
-                if (res.first == selectedW && res.second == selectedH) {
-                    btn.setBackgroundColor(Color.parseColor("#00E676"))
-                    btn.setTextColor(Color.BLACK)
-                } else {
-                    btn.setBackgroundColor(Color.parseColor("#2E303E"))
-                    btn.setTextColor(Color.WHITE)
-                }
+                styleChip(btn, res.first == selectedW && res.second == selectedH)
             }
 
             if (droidCamServer.isStreaming) {
                 streamer.stopStream()
                 streamer.startStream(streamer.currentFormat, selectedW, selectedH, settings.targetFps, isBackCamera)
-                val mode = if (isUsbConnection) "USB" else "Wi-Fi"
-                binding.txtSubStatus.text = "OBS Active ($mode): ${selectedW}x${selectedH} ${streamer.currentFormat} @ ${settings.targetFps}fps"
             }
+            updateConnectionPill()
         }
         updateResolutionUI(curW, curH)
 
@@ -651,14 +926,15 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         }
 
         sheetBinding.btnProbeResolutions.setOnClickListener {
+            dialog.dismiss()
             showCameraProbeDialog()
         }
 
         // Bitrates
         val currentKbps = settings.targetBitrateKbps
-        sheetBinding.txtCurrentBitrate.text = "Target Bitrate: ${currentKbps / 1000.0} Mbps (CBR)"
+        sheetBinding.txtCurrentBitrate.text = "${formatBitrateKbps(currentKbps)} CBR"
 
-        val bitrateMap: Map<Button, Int> = mapOf<Button, Int>(
+        val bitrateMap: Map<Button, Int> = mapOf(
             sheetBinding.btnBitrate25 to 2500,
             sheetBinding.btnBitrate4 to 4000,
             sheetBinding.btnBitrate8 to 8000,
@@ -669,16 +945,11 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
         fun updateBitrateUI(selectedKbps: Int) {
             settings.targetBitrateKbps = selectedKbps
-            sheetBinding.txtCurrentBitrate.text = "Target Bitrate: ${selectedKbps / 1000.0} Mbps (CBR)"
+            sheetBinding.txtCurrentBitrate.text = "${formatBitrateKbps(selectedKbps)} CBR"
             bitrateMap.forEach { (btn, kbps) ->
-                if (kbps == selectedKbps) {
-                    btn.setBackgroundColor(Color.parseColor("#00E676"))
-                    btn.setTextColor(Color.BLACK)
-                } else {
-                    btn.setBackgroundColor(Color.parseColor("#2E303E"))
-                    btn.setTextColor(Color.WHITE)
-                }
+                styleChip(btn, kbps == selectedKbps)
             }
+            updateConnectionPill()
         }
         updateBitrateUI(currentKbps)
 
@@ -688,7 +959,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
         // Target FPS
         val currentFps = settings.targetFps
-        sheetBinding.txtCurrentFps.text = "Target: $currentFps FPS"
+        sheetBinding.txtCurrentFps.text = "$currentFps fps"
 
         val fpsMap = mapOf(
             sheetBinding.btnFps24 to 24,
@@ -699,16 +970,11 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
         fun updateFpsUI(selectedFps: Int) {
             settings.targetFps = selectedFps
-            sheetBinding.txtCurrentFps.text = "Target: $selectedFps FPS (Sensor Timing: ${1000 / selectedFps}ms)"
+            sheetBinding.txtCurrentFps.text = "$selectedFps fps"
             fpsMap.forEach { (btn, fps) ->
-                if (fps == selectedFps) {
-                    btn.setBackgroundColor(Color.parseColor("#00E676"))
-                    btn.setTextColor(Color.BLACK)
-                } else {
-                    btn.setBackgroundColor(Color.parseColor("#2E303E"))
-                    btn.setTextColor(Color.WHITE)
-                }
+                styleChip(btn, fps == selectedFps)
             }
+            updateConnectionPill()
         }
         updateFpsUI(currentFps)
 
@@ -727,13 +993,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             settings.antiFlickerMode = mode
             streamer.setAntiFlicker(mode)
             flickerMap.forEach { (btn, m) ->
-                if (m.equals(mode, ignoreCase = true)) {
-                    btn.setBackgroundColor(Color.parseColor("#00E676"))
-                    btn.setTextColor(Color.BLACK)
-                } else {
-                    btn.setBackgroundColor(Color.parseColor("#2E303E"))
-                    btn.setTextColor(Color.WHITE)
-                }
+                styleChip(btn, m.equals(mode, ignoreCase = true))
             }
         }
         updateFlickerUI(settings.antiFlickerMode)
@@ -758,16 +1018,30 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             }
         }
 
-        sheetBinding.switchRotatePreview.isChecked = settings.isRotatePreview180
-        sheetBinding.switchRotatePreview.setOnCheckedChangeListener { _, isChecked ->
-            settings.isRotatePreview180 = isChecked
-            configureTransform(binding.cameraPreview.width, binding.cameraPreview.height)
+        sheetBinding.switchFlipH.isChecked = settings.flipHorizontal
+        sheetBinding.switchFlipH.setOnCheckedChangeListener { _, isChecked ->
+            applyPreviewFlips(isChecked, settings.flipVertical)
+        }
+
+        sheetBinding.switchFlipV.isChecked = settings.flipVertical
+        sheetBinding.switchFlipV.setOnCheckedChangeListener { _, isChecked ->
+            applyPreviewFlips(settings.flipHorizontal, isChecked)
         }
 
         sheetBinding.switchTally.isChecked = settings.showTallyIndicator
         sheetBinding.switchTally.setOnCheckedChangeListener { _, isChecked ->
             settings.showTallyIndicator = isChecked
             binding.txtTally.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        sheetBinding.switchAiTracking.isChecked = settings.isAiTrackingEnabled
+        sheetBinding.switchAiTracking.setOnCheckedChangeListener { _, isChecked ->
+            streamer.setAiTrackingEnabled(isChecked)
+        }
+
+        sheetBinding.switchGestures.isChecked = settings.isGesturesEnabled
+        sheetBinding.switchGestures.setOnCheckedChangeListener { _, isChecked ->
+            streamer.setGesturesEnabled(isChecked)
         }
 
         sheetBinding.btnCloseSettings.setOnClickListener {
@@ -778,49 +1052,132 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     }
 
     private fun showCameraProbeDialog() {
+        showCard(null, null)
+        val dialog = BottomSheetDialog(this)
+        val probeBinding = DialogSensorProbeBinding.inflate(layoutInflater)
+        dialog.setContentView(probeBinding.root)
+
         val (backRes, frontRes) = com.darusc.vcamdroid.video.queryDeviceResolutions(this)
-        val items = mutableListOf<String>()
-        val resList = mutableListOf<Pair<Int, Int>>()
 
-        items.add("--- REAR CAMERA RESOLUTIONS ---")
-        resList.add(Pair(0, 0))
-        for (r in backRes) {
-            val aspect = String.format("%.2f:1", r.first.toFloat() / r.second.toFloat())
-            items.add("Back: ${r.first} x ${r.second} ($aspect)")
-            resList.add(r)
-        }
+        fun renderResolutions(isRear: Boolean) {
+            probeBinding.resolutionsContainer.removeAllViews()
 
-        items.add("--- FRONT CAMERA RESOLUTIONS ---")
-        resList.add(Pair(0, 0))
-        for (r in frontRes) {
-            val aspect = String.format("%.2f:1", r.first.toFloat() / r.second.toFloat())
-            items.add("Front: ${r.first} x ${r.second} ($aspect)")
-            resList.add(r)
-        }
+            if (isRear) {
+                probeBinding.btnTabRear.setBackgroundColor(Color.parseColor("#00E676"))
+                probeBinding.btnTabRear.setTextColor(Color.BLACK)
+                probeBinding.btnTabFront.setBackgroundColor(Color.parseColor("#222430"))
+                probeBinding.btnTabFront.setTextColor(Color.WHITE)
+            } else {
+                probeBinding.btnTabFront.setBackgroundColor(Color.parseColor("#00E676"))
+                probeBinding.btnTabFront.setTextColor(Color.BLACK)
+                probeBinding.btnTabRear.setBackgroundColor(Color.parseColor("#222430"))
+                probeBinding.btnTabRear.setTextColor(Color.WHITE)
+            }
 
-        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("Camera Hardware Resolution Probe")
-            .setItems(items.toTypedArray()) { dialog, which ->
-                val selected = resList[which]
-                if (selected.first > 0 && selected.second > 0) {
-                    settings.targetResolutionWidth = selected.first
-                    settings.targetResolutionHeight = selected.second
-                    adjustPreviewAspectRatio(selected.first, selected.second)
-                    binding.cameraPreview.surfaceTexture?.setDefaultBufferSize(selected.first, selected.second)
+            val list = if (isRear) backRes else frontRes
+            for (r in list) {
+                val itemBinding = ItemSensorResolutionBinding.inflate(layoutInflater, probeBinding.resolutionsContainer, false)
+                itemBinding.txtResolution.text = "${r.first} × ${r.second}"
+                val aspect = String.format("%.2f:1", r.first.toFloat() / r.second.toFloat())
+                itemBinding.txtAspectRatio.text = aspect
+
+                itemBinding.root.setOnClickListener {
+                    settings.targetResolutionWidth = r.first
+                    settings.targetResolutionHeight = r.second
+                    adjustPreviewAspectRatio(r.first, r.second)
+                    binding.cameraPreview.surfaceTexture?.setDefaultBufferSize(r.first, r.second)
                     if (droidCamServer.isStreaming) {
                         streamer.stopStream()
-                        streamer.startStream(streamer.currentFormat, selected.first, selected.second, settings.targetFps, isBackCamera)
-                        val mode = if (isUsbConnection) "USB" else "Wi-Fi"
-                        binding.txtSubStatus.text = "OBS Active ($mode): ${selected.first}x${selected.second} ${streamer.currentFormat} @ ${settings.targetFps}fps"
-                    } else {
-                        updateConnectionPill()
+                        streamer.startStream(streamer.currentFormat, r.first, r.second, settings.targetFps, isBackCamera)
                     }
-                    android.widget.Toast.makeText(this, "Target resolution set to ${selected.first}x${selected.second}", android.widget.Toast.LENGTH_SHORT).show()
+                    updateConnectionPill()
+                    Toast.makeText(this, "Target resolution: ${r.first}×${r.second}", Toast.LENGTH_SHORT).show()
+                    dialog.dismiss()
                 }
-                dialog.dismiss()
+                probeBinding.resolutionsContainer.addView(itemBinding.root)
             }
-            .setPositiveButton("Close", null)
-            .show()
+        }
+
+        probeBinding.btnTabRear.setOnClickListener { renderResolutions(true) }
+        probeBinding.btnTabFront.setOnClickListener { renderResolutions(false) }
+        probeBinding.btnProbeBack.setOnClickListener { dialog.dismiss() }
+
+        probeBinding.btnCopyClipboard.setOnClickListener {
+            val sb = StringBuilder("=== VCamdroid Sensor Probe ===\n")
+            sb.append("Rear Sensor Resolutions:\n")
+            backRes.forEach { sb.append("• ${it.first} × ${it.second} (${String.format("%.2f:1", it.first.toFloat() / it.second)})\n") }
+            sb.append("\nFront Sensor Resolutions:\n")
+            frontRes.forEach { sb.append("• ${it.first} × ${it.second} (${String.format("%.2f:1", it.first.toFloat() / it.second)})\n") }
+
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("VCamdroid Sensor Probe", sb.toString()))
+            Toast.makeText(this, "Sensor resolutions copied to clipboard", Toast.LENGTH_SHORT).show()
+        }
+
+        renderResolutions(true)
+        dialog.show()
+    }
+
+    private fun showConnectionDetailsDialog(preferredMode: String? = null) {
+        showCard(null, null)
+        val dialog = BottomSheetDialog(this)
+        val connBinding = DialogConnectionDetailsBinding.inflate(layoutInflater)
+        dialog.setContentView(connBinding.root)
+
+        val localIp = getLocalIpAddress()
+        val wifiIpStr = if (localIp != null) "http://$localIp:${settings.port}/video" else "Wi-Fi Disconnected"
+        connBinding.txtWifiIpDisplay.text = wifiIpStr
+
+        if (localIp != null) {
+            connBinding.badgeWifiStatus.text = "ACTIVE"
+            connBinding.badgeWifiStatus.setTextColor(Color.parseColor("#00E676"))
+        } else {
+            connBinding.badgeWifiStatus.text = "OFFLINE"
+            connBinding.badgeWifiStatus.setTextColor(Color.parseColor("#787C96"))
+        }
+
+        val isUsbPlugged = isUsbConnection || hasUsbHardwareConnection()
+        connBinding.badgeUsbStatus.text = if (isUsbPlugged) "CONNECTED" else "READY"
+        connBinding.badgeUsbStatus.setTextColor(if (isUsbPlugged) Color.parseColor("#00E676") else Color.parseColor("#787C96"))
+
+        val adbCmd = "adb forward tcp:${settings.port} tcp:${settings.port}"
+        connBinding.txtAdbCommandDisplay.text = adbCmd
+
+        connBinding.btnCopyWifiUrl.setOnClickListener {
+            if (localIp != null) {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Wi-Fi URL", wifiIpStr))
+                Toast.makeText(this, "Copied: $wifiIpStr", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Please connect phone to Wi-Fi", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        connBinding.btnCopyAdbCommand.setOnClickListener {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("ADB Command", adbCmd))
+            Toast.makeText(this, "Copied: $adbCmd", Toast.LENGTH_SHORT).show()
+        }
+
+        connBinding.btnCloseConnectionDialog.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        if (preferredMode == "WIFI") {
+            connBinding.cardWifiEndpoint.setBackgroundResource(R.drawable.bg_param_pill_selected)
+        } else if (preferredMode == "USB") {
+            connBinding.cardUsbEndpoint.setBackgroundResource(R.drawable.bg_param_pill_selected)
+        }
+
+        dialog.show()
+    }
+
+    private fun hasUsbHardwareConnection(): Boolean {
+        val intent = applicationContext.registerReceiver(
+            null,
+            android.content.IntentFilter("android.hardware.usb.action.USB_STATE")
+        )
+        return intent?.getBooleanExtra("connected", false) == true
     }
 
     private fun toggleDimMode(enable: Boolean) {
@@ -829,6 +1186,9 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         if (enable) {
             binding.dimOverlay.visibility = View.VISIBLE
             lp.screenBrightness = 0.01f // AMOLED minimum brightness
+            val mode = if (isUsbConnection) "USB" else "Wi-Fi"
+            val mbps = formatBitrateKbps(settings.targetBitrateKbps)
+            binding.dimInstructions.text = "Encoding in background • $mode\n${settings.targetResolutionWidth}×${settings.targetResolutionHeight} • ${streamer.currentFormat.uppercase()} • ${settings.targetFps} fps • $mbps"
         } else {
             binding.dimOverlay.visibility = View.GONE
             lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
@@ -836,10 +1196,63 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         window.attributes = lp
     }
 
+    private var streamStartTimeMs: Long = 0L
+    private val durationHandler = Handler(Looper.getMainLooper())
+    private val durationRunnable = object : Runnable {
+        override fun run() {
+            if (droidCamServer.isStreaming) {
+                val elapsedSec = (SystemClock.elapsedRealtime() - streamStartTimeMs) / 1000
+                val hrs = elapsedSec / 3600
+                val mins = (elapsedSec % 3600) / 60
+                val secs = elapsedSec % 60
+                val timeStr = String.format("%02d:%02d:%02d", hrs, mins, secs)
+                binding.dimDuration.text = timeStr
+                if (settings.showTallyIndicator) {
+                    binding.txtTally.text = "● ON AIR  $timeStr"
+                }
+                durationHandler.postDelayed(this, 1000)
+            }
+        }
+    }
+
+    private fun syncHudToCapabilities() {
+        val minIso = streamer.minIso
+        val maxIso = streamer.maxIso
+        val isoTicks = listOf(
+            binding.tickIso0, binding.tickIso1, binding.tickIso2,
+            binding.tickIso3, binding.tickIso4, binding.tickIso5, binding.tickIso6
+        )
+        isoTicks.forEachIndexed { index, tick ->
+            val t = index / (isoTicks.size - 1).toFloat()
+            val iso = (minIso + t * (maxIso - minIso)).roundToInt()
+            tick.text = iso.toString()
+        }
+
+        binding.btnZoom05x.visibility = if (streamer.minZoomFactor < 0.75f) View.VISIBLE else View.GONE
+
+        if (!streamer.isManualIso) {
+            binding.valPillIso.text = "AUTO"
+            binding.txtIsoValue.text = "AUTO"
+        }
+
+        updateConnectionPill()
+    }
+
     private fun updateConnectionPill() {
-        val ip = getLocalIpAddress() ?: "Wi-Fi Disconnected"
-        binding.txtConnectionPill.text = "$ip : ${settings.port}"
-        binding.txtSubStatus.text = "Wi-Fi LAN & USB ADB Forward (127.0.0.1:${settings.port}) • ${settings.targetResolutionWidth}x${settings.targetResolutionHeight}"
+        val localIp = getLocalIpAddress()
+        val bitrate = formatBitrateKbps(settings.targetBitrateKbps)
+        if (droidCamServer.isStreaming) {
+            binding.txtConnectionPill.text = if (isUsbConnection) "USB · live" else "Wi-Fi · live"
+            binding.txtSubStatus.text =
+                "${settings.targetResolutionWidth}×${settings.targetResolutionHeight} • ${streamer.currentFormat.uppercase()} • ${settings.targetFps} fps • $bitrate"
+        } else {
+            binding.txtConnectionPill.text = "Waiting for OBS"
+            binding.txtSubStatus.text = if (localIp != null) {
+                "$localIp:${settings.port}"
+            } else {
+                "Tap for USB setup · port ${settings.port}"
+            }
+        }
     }
 
     private fun getLocalIpAddress(): String? {
@@ -871,13 +1284,38 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
     private fun configureTransform(viewWidth: Int, viewHeight: Int) {
         if (viewWidth <= 0 || viewHeight <= 0) return
+        val bufferW = settings.targetResolutionWidth
+        val bufferH = settings.targetResolutionHeight
+        if (bufferW <= 0 || bufferH <= 0) return
 
+        val sensorRot = streamer.sensorOrientation
         val matrix = Matrix()
-        val centerX = viewWidth / 2f
-        val centerY = viewHeight / 2f
+        val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
+        val swapped = sensorRot == 90 || sensorRot == 270
+        val bufferRect = if (swapped) {
+            RectF(0f, 0f, bufferH.toFloat(), bufferW.toFloat())
+        } else {
+            RectF(0f, 0f, bufferW.toFloat(), bufferH.toFloat())
+        }
+        val centerX = viewRect.centerX()
+        val centerY = viewRect.centerY()
+        bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
 
-        if (settings.isRotatePreview180) {
-            matrix.postRotate(180f, centerX, centerY)
+        val scale = if (swapped) {
+            max(viewHeight.toFloat() / bufferH, viewWidth.toFloat() / bufferW)
+        } else {
+            max(viewWidth.toFloat() / bufferW, viewHeight.toFloat() / bufferH)
+        }
+        matrix.postScale(scale, scale, centerX, centerY)
+        if (sensorRot != 0) {
+            matrix.postRotate(sensorRot.toFloat(), centerX, centerY)
+        }
+
+        val bothFlips = settings.flipHorizontal && settings.flipVertical
+        if (!(bothFlips && streamer.rotateAndCrop180Active)) {
+            if (settings.flipHorizontal) matrix.postScale(-1f, 1f, centerX, centerY)
+            if (settings.flipVertical) matrix.postScale(1f, -1f, centerX, centerY)
         }
 
         binding.cameraPreview.setTransform(matrix)
@@ -912,20 +1350,24 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     private var isUsbConnection = false
 
     override fun onVideoStreamStarted(format: String, width: Int, height: Int) {
-        val mode = if (isUsbConnection) "USB" else "Wi-Fi"
         runOnUiThread {
             adjustPreviewAspectRatio(width, height)
-            binding.txtSubStatus.text = "OBS Active ($mode): ${width}x${height} $format @ ${settings.targetFps}fps"
-            binding.txtSubStatus.setTextColor(Color.parseColor("#00E676"))
+            updateTallyBadge("program")
+            streamStartTimeMs = SystemClock.elapsedRealtime()
+            durationHandler.post(durationRunnable)
+            StreamingService.updateStatus(this, "On air in OBS")
+            updateConnectionPill()
         }
         streamer.startStream(format, width, height, settings.targetFps, isBackCamera)
     }
 
     override fun onVideoStreamStopped() {
         runOnUiThread {
-            binding.txtSubStatus.text = "Ready for OBS Studio • Standby: ${settings.getResolutionLabel()}"
-            binding.txtSubStatus.setTextColor(Color.parseColor("#9E9E9E"))
+            updateConnectionPill()
             updateTallyBadge("idle")
+            durationHandler.removeCallbacks(durationRunnable)
+            binding.dimDuration.text = "00:00:00"
+            StreamingService.updateStatus(this, "Waiting for OBS")
         }
         streamer.stopStream()
     }
@@ -939,15 +1381,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     override fun onClientConnected(remoteAddress: String) {
         isUsbConnection = remoteAddress.contains("127.0.0.1") || remoteAddress.contains("localhost")
         runOnUiThread {
-            if (isUsbConnection) {
-                binding.txtConnectionPill.text = "USB : ${settings.port}"
-                binding.txtSubStatus.text = "Connected via Wired USB (ADB)"
-                binding.txtSubStatus.setTextColor(Color.parseColor("#FFD54F"))
-            } else {
-                updateConnectionPill()
-                binding.txtSubStatus.text = "Connected via Wi-Fi ($remoteAddress)"
-                binding.txtSubStatus.setTextColor(Color.parseColor("#64B5F6"))
-            }
+            updateConnectionPill()
         }
     }
 
@@ -955,8 +1389,6 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         isUsbConnection = false
         runOnUiThread {
             updateConnectionPill()
-            binding.txtSubStatus.text = "Ready for OBS Studio • Standby: ${settings.getResolutionLabel()}"
-            binding.txtSubStatus.setTextColor(Color.parseColor("#9E9E9E"))
         }
     }
 
@@ -968,32 +1400,42 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         binding.txtTally.visibility = View.VISIBLE
         when (state.lowercase()) {
             "program" -> {
-                binding.txtTally.text = "LIVE: ON AIR"
-                binding.txtTally.setBackgroundColor(Color.parseColor("#E53935"))
-                binding.dimTallyStatus.text = "LIVE: ON AIR"
-                binding.dimTallyStatus.setTextColor(Color.parseColor("#B71C1C"))
+                binding.txtTally.text = "● ON AIR"
+                binding.txtTally.setBackgroundResource(R.drawable.bg_tally_on_air)
+                binding.txtTally.setTextColor(Color.WHITE)
+                binding.dimTallyStatus.text = "ON AIR"
+                binding.dimTallyStatus.setTextColor(ContextCompat.getColor(this, R.color.broadcast_red))
+                binding.dimTallyDot.visibility = View.VISIBLE
+                binding.btnCenterAction.setBackgroundResource(R.drawable.bg_action_circle_live)
             }
             "preview" -> {
                 binding.txtTally.text = "PREVIEW"
-                binding.txtTally.setBackgroundColor(Color.parseColor("#F57F17"))
+                binding.txtTally.setBackgroundResource(R.drawable.bg_tally_standby)
+                binding.txtTally.setTextColor(ContextCompat.getColor(this, R.color.exposure_amber))
                 binding.dimTallyStatus.text = "PREVIEW"
-                binding.dimTallyStatus.setTextColor(Color.parseColor("#E65100"))
+                binding.dimTallyStatus.setTextColor(ContextCompat.getColor(this, R.color.exposure_amber))
+                binding.dimTallyDot.visibility = View.GONE
+                binding.btnCenterAction.setBackgroundResource(R.drawable.bg_action_circle)
             }
             else -> {
                 binding.txtTally.text = "STANDBY"
-                binding.txtTally.setBackgroundColor(Color.parseColor("#2E303E"))
+                binding.txtTally.setBackgroundResource(R.drawable.bg_tally_standby)
+                binding.txtTally.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
                 binding.dimTallyStatus.text = "STANDBY"
-                binding.dimTallyStatus.setTextColor(Color.parseColor("#424242"))
+                binding.dimTallyStatus.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+                binding.dimTallyDot.visibility = View.GONE
+                binding.btnCenterAction.setBackgroundResource(R.drawable.bg_action_circle)
             }
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        durationHandler.removeCallbacks(durationRunnable)
         if (isFinishing) {
             mdnsAdvertiser.stopAdvertising()
             droidCamServer.stop()
-            streamer.stopStream()
+            streamer.release()
             StreamingService.stopService(this)
         }
     }

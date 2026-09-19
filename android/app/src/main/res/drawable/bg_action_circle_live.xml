@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Outer ring pulsing -->
+    <item>
+        <shape android:shape="oval">
+            <stroke
+                android:width="2dp"
+                android:color="@color/broadcast_red" />
+            <solid android:color="#33E53935" />
+            <size
+                android:width="64dp"
+                android:height="64dp" />
+        </shape>
+    </item>
+    <!-- Center disc -->
+    <item
+        android:bottom="8dp"
+        android:left="8dp"
+        android:right="8dp"
+        android:top="8dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/broadcast_red" />
+        </shape>
+    </item>
+</layer-list>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Outer ring -->
+    <item>
+        <shape android:shape="oval">
+            <stroke
+                android:width="2dp"
+                android:color="@color/border_subtle" />
+            <solid android:color="@color/surface_graphite" />
+            <size
+                android:width="64dp"
+                android:height="64dp" />
+        </shape>
+    </item>
+    <!-- Center disc -->
+    <item
+        android:bottom="10dp"
+        android:left="10dp"
+        android:right="10dp"
+        android:top="10dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/broadcast_red" />
+        </shape>
+    </item>
+</layer-list>

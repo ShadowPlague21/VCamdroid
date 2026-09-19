@@ -9,7 +9,9 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.YuvImage
 import android.hardware.camera2.*
+import android.hardware.camera2.params.ColorSpaceTransform
 import android.hardware.camera2.params.MeteringRectangle
+import android.hardware.camera2.params.RggbChannelVector
 import android.media.Image
 import android.media.ImageReader
 import android.media.MediaCodec
@@ -26,6 +28,8 @@ import com.darusc.vcamdroid.ai.GestureDetectorHelper
 import com.darusc.vcamdroid.util.Logger
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
+import kotlin.math.ln
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 class DroidCamStreamer(
@@ -75,6 +79,19 @@ class DroidCamStreamer(
         private set
     var currentAwbMode: Int = CameraMetadata.CONTROL_AWB_MODE_AUTO
         private set
+    var currentKelvin: Int = 5200
+        private set
+    var isManualWb: Boolean = false
+        private set
+    var flipHorizontal: Boolean = false
+        private set
+    var flipVertical: Boolean = false
+        private set
+    var sensorOrientation: Int = 90
+        private set
+    var rotateAndCrop180Active: Boolean = false
+        private set
+    private var supportsRotateAndCrop180 = false
     var currentAntiFlickerMode: Int = CameraMetadata.CONTROL_AE_ANTIBANDING_MODE_AUTO
         private set
 
@@ -142,6 +159,13 @@ class DroidCamStreamer(
         currentExposureCompensation = settings.lastExposureCompensation
         currentAwbMode = settings.lastAwbMode
         currentAfMode = settings.lastAfMode
+        currentKelvin = settings.lastKelvin
+        isManualWb = settings.isManualWb
+        flipHorizontal = settings.flipHorizontal
+        flipVertical = settings.flipVertical
+        if (isManualWb) {
+            currentAwbMode = CameraMetadata.CONTROL_AWB_MODE_OFF
+        }
 
         aiTrackerEngine = AiTrackerEngine(
             context,
@@ -153,24 +177,33 @@ class DroidCamStreamer(
             }
         ).apply {
             setTrackingEnabled(settings.isAiTrackingEnabled)
+            setStreamSize(currentWidth, currentHeight)
+            setUserZoom(currentZoom)
         }
 
         if (settings.isGesturesEnabled) {
-            gestureDetectorHelper = GestureDetectorHelper(
-                context,
-                onTrackingToggled = { active ->
-                    settings.isAiTrackingEnabled = active
-                    aiTrackerEngine?.setTrackingEnabled(active)
-                    onAiTrackingStateChanged?.invoke(active)
-                },
-                onPinchZoom = { zoom ->
-                    aiTrackerEngine?.setUserZoom(zoom)
-                    setZoom(zoom)
-                },
-                onGestureFeedback = { msg ->
-                    onGestureFeedback?.invoke(msg)
-                }
-            )
+            ensureGestureDetector()
+        }
+    }
+
+    private fun ensureGestureDetector() {
+        if (gestureDetectorHelper != null) return
+        gestureDetectorHelper = GestureDetectorHelper(
+            context,
+            onTrackingToggled = { active ->
+                settings.isAiTrackingEnabled = active
+                aiTrackerEngine?.setTrackingEnabled(active)
+                onAiTrackingStateChanged?.invoke(active)
+            },
+            onPinchZoom = { zoom ->
+                aiTrackerEngine?.setUserZoom(zoom)
+                setZoom(zoom)
+            },
+            onGestureFeedback = { msg ->
+                onGestureFeedback?.invoke(msg)
+            }
+        ).apply {
+            setTrackingActive(settings.isAiTrackingEnabled)
         }
     }
 
@@ -188,14 +221,14 @@ class DroidCamStreamer(
         fps: Int = 30,
         facingBack: Boolean = true
     ) {
-        if (isStreaming) {
-            stopStream()
-        }
+        isStreaming = false
+        closeCameraSession(releaseThreads = false)
 
         currentWidth = width
         currentHeight = height
         currentFormat = format
         isBackCamera = facingBack
+        aiTrackerEngine?.setStreamSize(width, height)
 
         startBackgroundThread()
 
@@ -217,8 +250,41 @@ class DroidCamStreamer(
     }
 
     fun stopStream() {
+        val resumePreview = previewSurface?.isValid == true
         isStreaming = false
+        closeCameraSession(releaseThreads = !resumePreview)
+        Logger.log("DROIDCAM_STREAMER", "Streaming stopped")
+        if (resumePreview) {
+            startLocalPreview(isBackCamera)
+        }
+    }
 
+    fun startLocalPreview(facingBack: Boolean = isBackCamera) {
+        if (isStreaming) return
+        isBackCamera = facingBack
+        aiTrackerEngine?.setStreamSize(currentWidth, currentHeight)
+        closeCameraSession(releaseThreads = false)
+        startBackgroundThread()
+        openCamera()
+        Logger.log("DROIDCAM_STREAMER", "Local preview started")
+    }
+
+    fun switchLens(facingBack: Boolean) {
+        isBackCamera = facingBack
+        if (isStreaming) {
+            startStream(currentFormat, currentWidth, currentHeight, settings.targetFps, facingBack)
+        } else {
+            startLocalPreview(facingBack)
+        }
+    }
+
+    fun release() {
+        isStreaming = false
+        previewSurface = null
+        closeCameraSession(releaseThreads = true)
+    }
+
+    private fun closeCameraSession(releaseThreads: Boolean) {
         try {
             captureSession?.stopRepeating()
             captureSession?.close()
@@ -245,8 +311,9 @@ class DroidCamStreamer(
         } catch (_: Exception) { }
         aiImageReader = null
 
-        stopBackgroundThread()
-        Logger.log("DROIDCAM_STREAMER", "Streaming stopped")
+        if (releaseThreads) {
+            stopBackgroundThread()
+        }
     }
 
     fun onScreenOff() {
@@ -262,6 +329,8 @@ class DroidCamStreamer(
         previewSurface = surface
         if (isStreaming) {
             updateCaptureSession()
+        } else if (surface != null) {
+            startLocalPreview(isBackCamera)
         }
     }
 
@@ -283,12 +352,24 @@ class DroidCamStreamer(
 
     // --- AI Tracking Controls ---
 
+    fun setGesturesEnabled(enabled: Boolean) {
+        settings.isGesturesEnabled = enabled
+        if (enabled) {
+            ensureGestureDetector()
+        }
+        if (isStreaming) {
+            updateCaptureSession()
+        }
+    }
+
     fun setAiTrackingEnabled(enabled: Boolean) {
         settings.isAiTrackingEnabled = enabled
         aiTrackerEngine?.setTrackingEnabled(enabled)
         gestureDetectorHelper?.setTrackingActive(enabled)
         onAiTrackingStateChanged?.invoke(enabled)
-        if (!enabled) {
+        if (isStreaming) {
+            updateCaptureSession()
+        } else if (!enabled) {
             applyCaptureSettings()
         }
     }
@@ -331,8 +412,36 @@ class DroidCamStreamer(
     }
 
     fun setAwbMode(mode: Int) {
+        isManualWb = false
         currentAwbMode = mode
+        settings.isManualWb = false
         settings.lastAwbMode = mode
+        applyCaptureSettings()
+    }
+
+    fun setWhiteBalanceKelvin(kelvin: Int) {
+        isManualWb = true
+        currentKelvin = kelvin.coerceIn(2000, 8000)
+        currentAwbMode = CameraMetadata.CONTROL_AWB_MODE_OFF
+        settings.isManualWb = true
+        settings.lastKelvin = currentKelvin
+        settings.lastAwbMode = currentAwbMode
+        applyCaptureSettings()
+    }
+
+    fun setAutoWhiteBalance() {
+        isManualWb = false
+        currentAwbMode = CameraMetadata.CONTROL_AWB_MODE_AUTO
+        settings.isManualWb = false
+        settings.lastAwbMode = currentAwbMode
+        applyCaptureSettings()
+    }
+
+    fun setPreviewFlips(horizontal: Boolean, vertical: Boolean) {
+        flipHorizontal = horizontal
+        flipVertical = vertical
+        settings.flipHorizontal = horizontal
+        settings.flipVertical = vertical
         applyCaptureSettings()
     }
 
@@ -463,7 +572,8 @@ class DroidCamStreamer(
                 builder.set(CaptureRequest.CONTROL_AF_MODE, currentAfMode)
             }
 
-            builder.set(CaptureRequest.CONTROL_AWB_MODE, currentAwbMode)
+            applyWhiteBalance(builder)
+            applyRotateAndCrop(builder, chars)
 
             // DroidCam-style Sensor Frame Duration for 60 FPS timing
             val targetFps = settings.targetFps
@@ -477,6 +587,54 @@ class DroidCamStreamer(
         } catch (e: Exception) {
             Logger.log("DROIDCAM_STREAMER", "applyCaptureSettings error: ${e.message}")
         }
+    }
+
+    private fun applyWhiteBalance(builder: CaptureRequest.Builder) {
+        if (isManualWb) {
+            builder.set(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_OFF)
+            builder.set(CaptureRequest.COLOR_CORRECTION_MODE, CameraMetadata.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX)
+            builder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, IDENTITY_COLOR_TRANSFORM)
+            builder.set(CaptureRequest.COLOR_CORRECTION_GAINS, kelvinToRggb(currentKelvin))
+        } else {
+            builder.set(CaptureRequest.CONTROL_AWB_MODE, currentAwbMode)
+        }
+    }
+
+    private fun applyRotateAndCrop(builder: CaptureRequest.Builder, chars: CameraCharacteristics) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            rotateAndCrop180Active = false
+            return
+        }
+        val modes = chars.get(CameraCharacteristics.SCALER_AVAILABLE_ROTATE_AND_CROP_MODES)
+        val want180 = flipHorizontal && flipVertical &&
+            modes?.contains(CaptureRequest.SCALER_ROTATE_AND_CROP_180) == true
+        rotateAndCrop180Active = want180
+        builder.set(
+            CaptureRequest.SCALER_ROTATE_AND_CROP,
+            if (want180) CaptureRequest.SCALER_ROTATE_AND_CROP_180
+            else CaptureRequest.SCALER_ROTATE_AND_CROP_NONE
+        )
+    }
+
+    private fun kelvinToRggb(kelvin: Int): RggbChannelVector {
+        val t = kelvin.coerceIn(2000, 8000) / 100.0
+        val r: Double
+        val g: Double
+        val b: Double
+        if (t <= 66.0) {
+            r = 255.0
+            g = (99.4708025861 * ln(t) - 161.1195681661).coerceIn(1.0, 255.0)
+            b = if (t <= 19.0) 1.0 else (138.5177312231 * ln(t - 10.0) - 305.044792778).coerceIn(1.0, 255.0)
+        } else {
+            r = (329.698727446 * (t - 60.0).pow(-0.1332047592)).coerceIn(1.0, 255.0)
+            g = (288.1221695283 * (t - 60.0).pow(-0.0755148492)).coerceIn(1.0, 255.0)
+            b = 255.0
+        }
+        val maxC = maxOf(r, g, b)
+        val rGain = (maxC / r).toFloat().coerceIn(0.3f, 4f)
+        val gGain = (maxC / g).toFloat().coerceIn(0.3f, 4f)
+        val bGain = (maxC / b).toFloat().coerceIn(0.3f, 4f)
+        return RggbChannelVector(rGain, gGain, gGain, bGain)
     }
 
     // --- Encoder Setup ---
@@ -631,6 +789,16 @@ class DroidCamStreamer(
         if (sensorRect != null) {
             aiTrackerEngine?.setSensorActiveArray(sensorRect)
         }
+        aiTrackerEngine?.setStreamSize(currentWidth, currentHeight)
+
+        sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+        supportsRotateAndCrop180 = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            chars.get(CameraCharacteristics.SCALER_AVAILABLE_ROTATE_AND_CROP_MODES)
+                ?.contains(CaptureRequest.SCALER_ROTATE_AND_CROP_180) == true
+        } else {
+            false
+        }
+        rotateAndCrop180Active = supportsRotateAndCrop180 && flipHorizontal && flipVertical
 
         onCapabilitiesChanged?.invoke()
     }
@@ -654,7 +822,6 @@ class DroidCamStreamer(
 
     private fun updateCaptureSession() {
         val camera = cameraDevice ?: return
-        val encoderSurf = encoderSurface ?: return
 
         try {
             captureSession?.stopRepeating()
@@ -662,66 +829,75 @@ class DroidCamStreamer(
         } catch (_: Exception) { }
 
         val surfaces = mutableListOf<Surface>()
-        surfaces.add(encoderSurf)
+        encoderSurface?.takeIf { it.isValid }?.let { surfaces.add(it) }
         previewSurface?.takeIf { it.isValid }?.let { surfaces.add(it) }
+        if (surfaces.isEmpty()) return
 
-        // AI Tracking ImageReader (downscaled 320x240 for 3ms BlazeFace inference)
         try {
             aiImageReader?.close()
         } catch (_: Exception) { }
+        aiImageReader = null
 
-        val aiReader = ImageReader.newInstance(320, 240, ImageFormat.YUV_420_888, 4)
-        aiReader.setOnImageAvailableListener({ reader ->
-            val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
-            if (!isStreaming) {
-                img.close()
-                return@setOnImageAvailableListener
-            }
-
-            try {
-                val now = SystemClock.uptimeMillis()
-                val needFace = aiTrackerEngine?.isReadyForInference(now) == true
-                val needGesture = settings.isGesturesEnabled && gestureDetectorHelper?.isReadyForInference(now) == true
-
-                if (!needFace && !needGesture) {
+        val useAiPipeline = isStreaming && (settings.isAiTrackingEnabled || settings.isGesturesEnabled)
+        if (useAiPipeline) {
+            val aiReader = ImageReader.newInstance(640, 480, ImageFormat.YUV_420_888, 4)
+            aiReader.setOnImageAvailableListener({ reader ->
+                val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                if (!isStreaming) {
                     img.close()
                     return@setOnImageAvailableListener
                 }
 
-                val w = img.width
-                val h = img.height
-                if (aiBitmap == null || aiBitmap?.width != w || aiBitmap?.height != h) {
-                    aiBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                    aiRgbPixels = IntArray(w * h)
-                }
+                try {
+                    val now = SystemClock.uptimeMillis()
+                    val needFace = aiTrackerEngine?.isReadyForInference(now) == true
+                    val needGesture = settings.isGesturesEnabled && gestureDetectorHelper?.isReadyForInference(now) == true
 
-                val bitmap = aiBitmap
-                val pixels = aiRgbPixels
-                if (bitmap != null && pixels != null) {
-                    fastYuv420ToRgb(img, pixels)
-                    bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
-                }
-
-                // CRITICAL: Close hardware camera image IMMEDIATELY (<0.3ms)! Zero HAL buffer starvation!
-                img.close()
-
-                if (bitmap != null) {
-                    if (needGesture) {
-                        gestureDetectorHelper?.processBitmap(bitmap, 90)
+                    if (!needFace && !needGesture) {
+                        img.close()
+                        return@setOnImageAvailableListener
                     }
-                    if (needFace) {
-                        aiTrackerEngine?.processBitmap(bitmap, 90)
+
+                    val w = img.width
+                    val h = img.height
+                    if (aiBitmap == null || aiBitmap?.width != w || aiBitmap?.height != h) {
+                        aiBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        aiRgbPixels = IntArray(w * h)
                     }
+
+                    val bitmap = aiBitmap
+                    val pixels = aiRgbPixels
+                    if (bitmap != null && pixels != null) {
+                        fastYuv420ToRgb(img, pixels)
+                        bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
+                    }
+
+                    img.close()
+
+                    val inferenceRotation = (sensorOrientation + if (rotateAndCrop180Active) 180 else 0) % 360
+                    if (bitmap != null) {
+                        if (needGesture) {
+                            gestureDetectorHelper?.processBitmap(bitmap, inferenceRotation)
+                        }
+                        if (needFace) {
+                            aiTrackerEngine?.processBitmap(bitmap, inferenceRotation)
+                        }
+                    }
+                } catch (_: Exception) {
+                    try { img.close() } catch (_: Exception) {}
                 }
-            } catch (_: Exception) {
-                try { img.close() } catch (_: Exception) {}
-            }
-        }, aiHandler)
-        aiImageReader = aiReader
-        surfaces.add(aiReader.surface)
+            }, aiHandler)
+            aiImageReader = aiReader
+            surfaces.add(aiReader.surface)
+        }
 
         try {
-            val builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
+            val template = if (encoderSurface != null) {
+                CameraDevice.TEMPLATE_RECORD
+            } else {
+                CameraDevice.TEMPLATE_PREVIEW
+            }
+            val builder = camera.createCaptureRequest(template)
             for (surface in surfaces) {
                 builder.addTarget(surface)
             }
@@ -746,7 +922,7 @@ class DroidCamStreamer(
                 builder.set(CaptureRequest.CONTROL_AF_MODE, currentAfMode)
             }
 
-            builder.set(CaptureRequest.CONTROL_AWB_MODE, currentAwbMode)
+            applyWhiteBalance(builder)
 
             setAntiFlicker(settings.antiFlickerMode)
 
@@ -763,6 +939,7 @@ class DroidCamStreamer(
             builder.set(CaptureRequest.SENSOR_FRAME_DURATION, frameDurationNs)
 
             val chars = cameraManager.getCameraCharacteristics(camera.id)
+            applyRotateAndCrop(builder, chars)
             val fpsRange = getBestFpsRange(chars, targetFps, settings.matchTargetMinFps)
             builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
             Logger.log("DROIDCAM_STREAMER", "Target FPS: $targetFps -> AE FPS Range: $fpsRange, Frame Duration: ${frameDurationNs}ns")
@@ -778,7 +955,9 @@ class DroidCamStreamer(
                         }
                         session.setRepeatingRequest(builder.build(), captureCallback, cameraHandler)
                         cameraHandler?.removeCallbacks(smoothingRunnable)
-                        cameraHandler?.post(smoothingRunnable)
+                        if (isStreaming) {
+                            cameraHandler?.post(smoothingRunnable)
+                        }
                     } catch (e: Exception) {
                         Logger.log("DROIDCAM_STREAMER", "setRepeatingRequest error: ${e.message}")
                     }
@@ -900,5 +1079,15 @@ class DroidCamStreamer(
         cameraHandler = null
         aiThread = null
         aiHandler = null
+    }
+
+    companion object {
+        private val IDENTITY_COLOR_TRANSFORM = ColorSpaceTransform(
+            intArrayOf(
+                1, 1, 0, 1, 0, 1,
+                0, 1, 1, 1, 0, 1,
+                0, 1, 0, 1, 1, 1
+            )
+        )
     }
 }

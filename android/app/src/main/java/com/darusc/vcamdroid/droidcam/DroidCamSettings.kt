@@ -32,25 +32,40 @@ class DroidCamSettings(context: Context) {
         const val KEY_GESTURES_ENABLED = "ai_gestures_enabled"
 
         const val KEY_ROTATE_PREVIEW_180 = "rotate_preview_180"
+        const val KEY_FLIP_HORIZONTAL = "flip_horizontal"
+        const val KEY_FLIP_VERTICAL = "flip_vertical"
+        const val KEY_LAST_KELVIN = "last_wb_kelvin"
+        const val KEY_MANUAL_WB = "manual_wb"
 
-        // Last saved camera parameters
         const val KEY_LAST_ZOOM = "last_zoom_factor"
         const val KEY_LAST_EV = "last_exposure_compensation"
         const val KEY_LAST_AWB = "last_awb_mode"
         const val KEY_LAST_AF = "last_af_mode"
     }
 
-    var isRotatePreview180: Boolean
-        get() = prefs.getBoolean(KEY_ROTATE_PREVIEW_180, false)
-        set(value) = prefs.edit().putBoolean(KEY_ROTATE_PREVIEW_180, value).apply()
+    var flipHorizontal: Boolean
+        get() = prefs.getBoolean(KEY_FLIP_HORIZONTAL, prefs.getBoolean(KEY_ROTATE_PREVIEW_180, false))
+        set(value) = prefs.edit().putBoolean(KEY_FLIP_HORIZONTAL, value).apply()
+
+    var flipVertical: Boolean
+        get() = prefs.getBoolean(KEY_FLIP_VERTICAL, prefs.getBoolean(KEY_ROTATE_PREVIEW_180, false))
+        set(value) = prefs.edit().putBoolean(KEY_FLIP_VERTICAL, value).apply()
+
+    var lastKelvin: Int
+        get() = prefs.getInt(KEY_LAST_KELVIN, 5200)
+        set(value) = prefs.edit().putInt(KEY_LAST_KELVIN, value).apply()
+
+    var isManualWb: Boolean
+        get() = prefs.getBoolean(KEY_MANUAL_WB, false)
+        set(value) = prefs.edit().putBoolean(KEY_MANUAL_WB, value).apply()
 
     // AI Tracking Options
     var isAiTrackingEnabled: Boolean
-        get() = prefs.getBoolean(KEY_AI_TRACKING, true)
+        get() = prefs.getBoolean(KEY_AI_TRACKING, false)
         set(value) = prefs.edit().putBoolean(KEY_AI_TRACKING, value).apply()
 
     var isGesturesEnabled: Boolean
-        get() = prefs.getBoolean(KEY_GESTURES_ENABLED, true)
+        get() = prefs.getBoolean(KEY_GESTURES_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_GESTURES_ENABLED, value).apply()
 
     // Video Options

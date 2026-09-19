@@ -1,10 +1,51 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.Vcamdroid" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
-        <item name="android:statusBarColor">@color/black</item>
+    <!-- Base VCamdroid Studio Theme (OLED / Dark Console) -->
+    <style name="Base.Theme.Vcamdroid" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/accent_green</item>
+        <item name="colorOnPrimary">@color/black</item>
+        <item name="colorPrimaryContainer">@color/surface_control_active</item>
+        <item name="colorOnPrimaryContainer">@color/accent_green</item>
+        <item name="colorSecondary">@color/surface_control</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSurface">@color/surface_graphite</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="android:windowBackground">@color/oled_black</item>
+        <item name="android:statusBarColor">@color/oled_black</item>
+        <item name="android:navigationBarColor">@color/oled_black</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 
     <style name="Theme.Vcamdroid" parent="Base.Theme.Vcamdroid" />
+
+    <!-- Instrument Parameter Pill Style -->
+    <style name="Widget.VCamdroid.ParamPill" parent="Widget.Material3.Button.UnelevatedButton">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:minWidth">64dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingLeft">12dp</item>
+        <item name="android:paddingRight">12dp</item>
+        <item name="android:paddingTop">6dp</item>
+        <item name="android:paddingBottom">6dp</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="backgroundTint">@color/surface_control</item>
+        <item name="android:textColor">@color/white</item>
+        <item name="strokeColor">@color/border_subtle</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <!-- Context Card Preset Button Style -->
+    <style name="Widget.VCamdroid.ContextButton" parent="Widget.Material3.Button.UnelevatedButton">
+        <item name="android:minHeight">34dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingLeft">10dp</item>
+        <item name="android:paddingRight">10dp</item>
+        <item name="cornerRadius">8dp</item>
+        <item name="backgroundTint">@color/surface_control</item>
+        <item name="android:textColor">@color/white</item>
+        <item name="strokeColor">@color/border_subtle</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
 </resources>

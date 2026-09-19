@@ -1,11 +1,12 @@
-package com.darusc.vcamdroid.video.overlays;
+package com.darusc.vcamdroid.video.overlays
 
-import android.content.Context;
+import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
-import android.util.AttributeSet;
+import android.util.AttributeSet
 import android.util.Size
+import android.util.TypedValue
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -15,19 +16,25 @@ class ScannerOverlay(context: Context, attrs: AttributeSet) : LinearLayout(conte
 
     private val widthPercentage = 0.7f
     private val heightPercentage = 0.35f
-    private val cornerSize = 150
-    public val rect = Rect()
-    public lateinit var size: Size
+    val rect = Rect()
+    var size: Size = Size(0, 0)
+
+    private val cornerSize = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP, 32f, resources.displayMetrics
+    )
+    private val hintOffset = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics
+    )
 
     private val paint = Paint().apply {
-        color = 0xFFFFFFFF.toInt() // White border
-        strokeWidth = 8f
+        color = 0xFFFFFFFF.toInt()
+        strokeWidth = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 2.5f, resources.displayMetrics)
         style = Paint.Style.STROKE
         isAntiAlias = true
     }
 
     private val textView: TextView = TextView(context).apply {
-        textSize = 18f
+        textSize = 16f
         gravity = Gravity.CENTER
         setTextColor(0xFFFFFFFF.toInt())
         layoutParams = LayoutParams(
@@ -40,6 +47,7 @@ class ScannerOverlay(context: Context, attrs: AttributeSet) : LinearLayout(conte
 
     init {
         orientation = VERTICAL
+        setWillNotDraw(false)
         context.theme.obtainStyledAttributes(attrs, R.styleable.ScannerOverlay, 0, 0).apply {
             try {
                 textView.text = getString(R.styleable.ScannerOverlay_text) ?: ""
@@ -47,7 +55,6 @@ class ScannerOverlay(context: Context, attrs: AttributeSet) : LinearLayout(conte
                 recycle()
             }
         }
-
         addView(textView)
     }
 
@@ -61,16 +68,12 @@ class ScannerOverlay(context: Context, attrs: AttributeSet) : LinearLayout(conte
         val bottom = height - top
         rect.set(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
 
-        // Top left
         canvas.drawArc(left, top, left + cornerSize, top + cornerSize, -180f, 90f, false, paint)
-        // Top right
         canvas.drawArc(right - cornerSize, top, right, top + cornerSize, 0f, -90f, false, paint)
-        // Bottom right
         canvas.drawArc(right - cornerSize, bottom - cornerSize, right, bottom, 0f, 90f, false, paint)
-        // Bottom left
-        canvas.drawArc(left, bottom-cornerSize, left + cornerSize, bottom, -180f, -90f, false, paint)
+        canvas.drawArc(left, bottom - cornerSize, left + cornerSize, bottom, -180f, -90f, false, paint)
 
-        textView.y = top - 200
-        textView.maxWidth = (width * widthPercentage).toInt() + cornerSize
+        textView.y = (top - hintOffset).coerceAtLeast(0f)
+        textView.maxWidth = (width * widthPercentage).toInt()
     }
 }

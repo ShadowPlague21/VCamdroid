@@ -7,6 +7,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import com.darusc.vcamdroid.databinding.ActivityLogsBinding
 import com.darusc.vcamdroid.util.Logger
+import com.darusc.vcamdroid.util.applySystemBarInsets
 
 class LogActivity : AppCompatActivity() {
 
@@ -16,6 +17,18 @@ class LogActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityLogsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Setup Navigation & Actions
+        binding.btnLogBack.setOnClickListener {
+            finish()
+        }
+
+        binding.root.applySystemBarInsets()
+
+        binding.btnClearLogs.setOnClickListener {
+            Logger.clear()
+            binding.logTextView.text = Logger.getLogs()
+        }
 
         // Setup Share Button
         binding.btnSaveLogs.setOnClickListener {

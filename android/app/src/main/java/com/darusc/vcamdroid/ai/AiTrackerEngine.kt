@@ -30,9 +30,11 @@ class AiTrackerEngine(
     private var sensorRect: Rect = Rect(0, 0, 4608, 3456)
 
     // Dynamic Gimbal State
-    private var isTrackingEnabled = true
-    // Default 1.15x zoom gives full, natural wide framing with gentle headroom and panning space
-    private var userZoomFactor = 1.15f
+    private var isTrackingEnabled = false
+    // Default 1.0x zoom follows the HUD; crop aspect matches the stream
+    private var userZoomFactor = 1.0f
+    private var streamWidth = 1920
+    private var streamHeight = 1080
 
     // Target and Smoothed Crop coordinates
     private var targetCenterX = 2304f
@@ -43,9 +45,9 @@ class AiTrackerEngine(
     // SmoothDamp physics state for Bezier-like ease-in and ease-out
     private var velocityX = 0f
     private var velocityY = 0f
-    // 0.45s smooth time mimics a heavy motorized physical gimbal (smooth acceleration & deceleration)
-    private val SMOOTH_TIME = 0.45f
-    private val MAX_SPEED = 2800f // Max pixels per second
+    // 0.65s smooth time keeps servoing calm so it doesn't fight the crop
+    private val SMOOTH_TIME = 0.65f
+    private val MAX_SPEED = 2200f // Max pixels per second
 
     // Filtered face positions to remove ML detection jitter
     private var filteredFaceX = 0.5f
@@ -54,15 +56,15 @@ class AiTrackerEngine(
 
     // Deadzone (normalized 0.0 - 1.0 fraction of crop window)
     // While the face is inside this inner box, the camera is 100% stationary
-    private val DEADZONE_X_FRACTION = 0.12f
-    private val DEADZONE_Y_FRACTION = 0.10f
+    private val DEADZONE_X_FRACTION = 0.20f
+    private val DEADZONE_Y_FRACTION = 0.18f
 
     private var consecutiveNoFaceFrames = 0
     private val MAX_NO_FACE_HOLD_FRAMES = 40
 
     // Spatial change threshold to avoid micro-updates that cause AE flicker
     private var lastEmittedCropRect = Rect()
-    private val MIN_PIXEL_CHANGE_THRESHOLD = 10 // At least 10 pixels movement
+    private val MIN_PIXEL_CHANGE_THRESHOLD = 28
 
     init {
         initFaceDetector()
@@ -90,6 +92,13 @@ class AiTrackerEngine(
         resetToDefaultCrop()
     }
 
+    fun setStreamSize(width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        if (streamWidth == width && streamHeight == height) return
+        streamWidth = width
+        streamHeight = height
+        resetToDefaultCrop()
+    }
 
     fun setTrackingEnabled(enabled: Boolean) {
         isTrackingEnabled = enabled
@@ -102,7 +111,7 @@ class AiTrackerEngine(
     fun isTrackingEnabled(): Boolean = isTrackingEnabled
 
     fun setUserZoom(zoom: Float) {
-        userZoomFactor = zoom.coerceIn(1.05f, 4.0f)
+        userZoomFactor = zoom.coerceIn(1.0f, 8.0f)
     }
 
     fun getUserZoom(): Float = userZoomFactor
@@ -316,9 +325,20 @@ class AiTrackerEngine(
 
     private fun getCropDimensions(): Pair<Float, Float> {
         val sW = sensorRect.width().toFloat()
-        val w = (sW / userZoomFactor).coerceIn(1920f, sW)
-        val h = w * (9f / 16f)
-        return Pair(w, h)
+        val sH = sensorRect.height().toFloat()
+        val zoom = userZoomFactor.coerceAtLeast(1.0f)
+        val targetAspect = streamWidth.toFloat() / streamHeight.toFloat()
+        val sensorAspect = sW / sH
+        val cropW: Float
+        val cropH: Float
+        if (sensorAspect >= targetAspect) {
+            cropH = (sH / zoom).coerceAtMost(sH)
+            cropW = (cropH * targetAspect).coerceAtMost(sW)
+        } else {
+            cropW = (sW / zoom).coerceAtMost(sW)
+            cropH = (cropW / targetAspect).coerceAtMost(sH)
+        }
+        return Pair(cropW.coerceAtLeast(1f), cropH.coerceAtLeast(1f))
     }
 
     private fun computeCropRect(centerX: Float, centerY: Float): Rect {
