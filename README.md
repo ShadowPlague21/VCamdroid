@@ -23,20 +23,21 @@
 ## Table of Contents
 
 1. [**Description**](#description)
-2. [**Key Features**](#key-features)
-3. [**Modes of Operation**](#modes-of-operation)
+2. [**The Vision: "Insta360 Link 2 on Mobile" & Current Status**](#the-vision-insta360-link-2-on-mobile--current-status)
+3. [**Key Features**](#key-features)
+4. [**Modes of Operation**](#modes-of-operation)
    * [1. OBS Studio Mode (DroidCam OBS Drop-in Replacement)](#1-obs-studio-mode-droidcam-obs-drop-in-replacement)
    * [2. Desktop Client & Virtual Webcam Mode](#2-desktop-client--virtual-webcam-mode)
-4. [**Pro Studio Controls**](#pro-studio-controls)
-5. [**Installation Guide**](#installation-guide)
-6. [**Usage Instructions**](#usage-instructions)
+5. [**Pro Studio Controls**](#pro-studio-controls)
+6. [**Installation Guide**](#installation-guide)
+7. [**Usage Instructions**](#usage-instructions)
    * [OBS Studio via Wired USB (ADB)](#obs-studio-via-wired-usb-adb)
    * [OBS Studio via Local Wi-Fi](#obs-studio-via-local-wi-fi)
    * [Windows Desktop Client via USB / Wi-Fi](#windows-desktop-client-via-usb--wi-fi)
-7. [**Screen-Off & Background Streaming**](#screen-off--background-streaming)
-8. [**Technical Architecture**](#technical-architecture)
-9. [**Troubleshooting**](#troubleshooting)
-10. [**Contributing**](#contributing)
+8. [**Screen-Off & Background Streaming**](#screen-off--background-streaming)
+9. [**Technical Architecture**](#technical-architecture)
+10. [**Troubleshooting**](#troubleshooting)
+11. [**Contributing**](#contributing)
 
 ---
 
@@ -50,6 +51,44 @@
   <img src="imgs/demo.gif" width="600" alt="VCamdroid Demo">
 </p>
 
+---
+
+## The Vision: "Insta360 Link 2 on Mobile" & Current Status
+
+### The Intent
+Dedicated AI tracking webcams like the **Insta360 Link 2** have set a new benchmark for streamers and creators with intelligent 2-axis motorized gimbal tracking, AI face centering, and hands-free gesture recognition (palm toggle, pinch-to-zoom). However, they require expensive dedicated hardware.
+
+Smartphones do not have mechanical motorized gimbals, but modern smartphone sensors possess massive optical resolution and wide fields of view (e.g., 64 MP 4:3 active array). Our ambitious intent was to **recreate the Insta360 Link 2 experience directly on an Android smartphone via software ePTZ (electronic Pan-Tilt-Zoom)**:
+1. Tap into the camera sensor's maximum active array to capture as much physical environment as possible.
+2. Run lightweight on-device machine learning (BlazeFace & Hand Gesture estimation) in real time.
+3. Automatically track and center the presenter's face using a simulated motorized gimbal physics model (critically damped harmonic oscillator with Bezier ease-in / ease-out curves).
+4. Interpret hands-free gestures like open palms (toggle tracking) and pinch-to-zoom.
+5. Crop and transmit an ultra-smooth, perfectly framed 1080p 60 FPS stream over USB ADB to OBS Studio.
+
+### Hardware Reality & Technical Bottlenecks
+We attempted this feature with whatever limited resources and hardware options we had—specifically targeting mid-range hardware (such as a Qualcomm Snapdragon 720G with 6–8 GB RAM) running bloated, thermally constrained vendor Android skins. 
+
+Simultaneously executing:
+* Continuous 60 FPS Camera2 HAL active-array frame extraction
+* Real-time computer vision inference
+* Real-time hardware HEVC/AVC encoding at high bitrates
+* Zero-latency network packet transmission
+
+pushes mid-range silicon, Qualcomm Spectra ISPs, and the Android Camera subsystem to their limits.
+
+### Current Status: Experimental & Work-In-Progress
+> [!WARNING]
+> **Honest Engineering Disclosure:** While the algorithmic foundation (SmoothDamp easing, decoupled non-blocking memory buffers, and ML integration) exists in the codebase, **this feature is an active work-in-progress and is NOT yet properly or reliably implemented**.
+>
+> In real-world testing, software ePTZ on mid-range hardware can introduce camera HAL buffer starvation leading to UI stutter, preview aspect ratio conflicts, gesture misfires, and auto-exposure micro-flickering as the crop shifts across sensor zones.
+
+### Our Non-Negotiable Standards
+Our standard is that **broadcast stability and zero device lag must never be compromised**:
+* **Mobile Must Not Lag:** The phone must remain responsive, cool, and fluid throughout hours of continuous broadcast. Zero dropped frames, zero stutter, and zero UI freezes.
+* **Natural Proportions:** The camera preview and broadcast stream must maintain a natural 1:1 square-pixel aspect ratio—no stretched, squeezed, or elongated faces.
+* **Production Stability Over Gimmicks:** If an experimental feature causes instability, it is refined, disabled by default, or kept strictly experimental until it meets production broadcast standards.
+
+We are continuing to work on hyper-efficient ML models, ISP delegation, and cleaner ePTZ algorithms to achieve this vision reliably.
 ---
 
 ## Key Features
