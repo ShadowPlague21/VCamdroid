@@ -36,12 +36,13 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 class DroidCamStreamer(
-    private val context: Context,
+    context: Context,
     private val droidCamServer: DroidCamServer
 ) {
 
-    private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-    val settings = DroidCamSettings(context)
+    private val appContext = context.applicationContext
+    private val cameraManager = appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    val settings = DroidCamSettings(appContext)
 
     private var cameraThread: HandlerThread? = null
     private var cameraHandler: Handler? = null
@@ -208,7 +209,7 @@ class DroidCamStreamer(
         }
 
         aiTrackerEngine = AiTrackerEngine(
-            context,
+            appContext,
             onCropRegionChanged = { cropRect ->
                 applyCropRegion(cropRect)
             },
@@ -229,7 +230,7 @@ class DroidCamStreamer(
     private fun ensureGestureDetector() {
         if (gestureDetectorHelper != null) return
         gestureDetectorHelper = GestureDetectorHelper(
-            context,
+            appContext,
             onTrackingToggled = { active ->
                 settings.isAiTrackingEnabled = active
                 aiTrackerEngine?.setTrackingEnabled(active)
@@ -391,11 +392,20 @@ class DroidCamStreamer(
         }
     }
 
+
+    fun stopLocalPreview() {
+        if (isStreaming) return
+        closeCameraSession(releaseThreads = false)
+        Logger.log("DROIDCAM_STREAMER", "Local preview stopped")
+    }
+
     fun onScreenOff() {
         Logger.log("DROIDCAM_STREAMER", "Screen OFF -> maintaining camera session on hardware encoder surface only")
         previewSurface = null
         if (isStreaming && settings.keepVideoActiveScreenOff) {
             updateCaptureSession()
+        } else if (!isStreaming) {
+            stopLocalPreview()
         }
     }
 

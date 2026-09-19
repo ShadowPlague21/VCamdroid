@@ -52,18 +52,28 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.media.MediaFormat
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import android.content.ComponentName
+import android.content.Intent
+import android.content.ServiceConnection
+import android.os.IBinder
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener, DroidCamServer.Listener {
+class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener, StreamingService.SessionObserver {
 
     private lateinit var binding: ActivityDroidcamBinding
-    private lateinit var droidCamServer: DroidCamServer
-    private lateinit var mdnsAdvertiser: MdnsAdvertiser
-    private lateinit var streamer: DroidCamStreamer
     private lateinit var settings: DroidCamSettings
+
+    private var streamingService: StreamingService? = null
+    private var isBound = false
+
+    private val streamer: DroidCamStreamer?
+        get() = streamingService?.streamer
+
+    private val droidCamServer: DroidCamServer?
+        get() = streamingService?.server
 
     private var isBackCamera = true
     private var isDimMode = false
@@ -72,6 +82,42 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     private var activeSettingsBinding: DialogDroidcamSettingsBinding? = null
     private var activeSettingsUiUpdater: ((Int, Int, Int) -> Unit)? = null
     private var currentTallyState: String = "idle"
+    private var isUsbConnection = false
+    private var previewSurface: Surface? = null
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            val localBinder = binder as? StreamingService.LocalBinder ?: return
+            val service = localBinder.getService()
+            streamingService = service
+            isBound = true
+            service.registerObserver(this@DroidCamActivity)
+            service.ensureDroidCamSession()
+
+            previewSurface?.let { service.attachPreview(it) }
+
+            val (optW, optH) = service.streamer?.getOptimalPreviewSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
+                ?: Pair(1920, 1080)
+            adjustPreviewAspectRatio(optW, optH)
+
+            syncHudToCapabilities()
+            updateConnectionPill()
+            if (service.server?.isStreaming == true) {
+                updateTallyBadge("program")
+                if (streamStartTimeMs == 0L) {
+                    streamStartTimeMs = SystemClock.elapsedRealtime()
+                    durationHandler.post(durationRunnable)
+                }
+            } else {
+                updateTallyBadge(service.currentTallyState)
+            }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            streamingService = null
+            isBound = false
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,16 +134,18 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         binding.topBar.applySystemBarInsets(bottom = false)
         binding.bottomControlPalette.applySystemBarInsets(top = false)
 
-        if (settings.backgroundStreaming) {
-            StreamingService.startService(this, "Waiting for OBS")
+        StreamingService.startDroidCamService(this, "Waiting for OBS")
+        val serviceIntent = Intent(this, StreamingService::class.java)
+        bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+        StreamingService.instance?.let { service ->
+            streamingService = service
+            service.registerObserver(this)
+            service.ensureDroidCamSession()
         }
 
-        droidCamServer = DroidCamServer(this, settings.port, this)
-        mdnsAdvertiser = MdnsAdvertiser(this)
-        streamer = DroidCamStreamer(this, droidCamServer)
-
         binding.cameraPreview.surfaceTextureListener = this
-        val (initOptW, initOptH) = streamer.getOptimalPreviewSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
+        val (initOptW, initOptH) = streamer?.getOptimalPreviewSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
+            ?: Pair(1920, 1080)
         adjustPreviewAspectRatio(initOptW, initOptH)
 
         setupStudioHUD()
@@ -106,19 +154,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         updateConnectionPill()
         syncHudToCapabilities()
 
-        streamer.onCapabilitiesChanged = {
-            runOnUiThread {
-                syncHudToCapabilities()
-                configureTransform(binding.cameraPreview.width, binding.cameraPreview.height)
-            }
-        }
-
         checkPermissions()
-
-        droidCamServer.start()
-        if (settings.allowWifiDiscovery) {
-            mdnsAdvertiser.startAdvertising(settings.port)
-        }
     }
 
     private fun checkPermissions(): Boolean {
@@ -148,7 +184,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             android.Manifest.permission.CAMERA
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         if (cameraGranted) {
-            previewSurface?.let { streamer.onScreenOn(it) }
+            previewSurface?.let { streamingService?.attachPreview(it) }
         }
     }
 
@@ -169,6 +205,20 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         }
         hideFeedbackRunnable = r
         binding.txtGestureFeedback.postDelayed(r, 2200)
+    }
+
+    private fun updateAiTrackUI(enabled: Boolean) {
+        binding.valPillAi.text = if (enabled) "ON" else "OFF"
+        binding.lblPillAi.setTextColor(
+            ContextCompat.getColor(this, if (enabled) R.color.accent_green else R.color.text_secondary)
+        )
+        binding.btnAiTrack.setBackgroundResource(
+            if (enabled) R.drawable.bg_param_pill_selected else R.drawable.bg_param_pill
+        )
+        if (!enabled) {
+            binding.faceReticle.visibility = View.GONE
+        }
+        activeSettingsBinding?.switchAiTracking?.isChecked = enabled
     }
 
     private fun setupStudioHUD() {
@@ -200,44 +250,12 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             showConnectionDetailsDialog()
         }
 
-        fun updateAiTrackUI(enabled: Boolean) {
-            binding.valPillAi.text = if (enabled) "ON" else "OFF"
-            binding.lblPillAi.setTextColor(
-                ContextCompat.getColor(this, if (enabled) R.color.accent_green else R.color.text_secondary)
-            )
-            binding.btnAiTrack.setBackgroundResource(
-                if (enabled) R.drawable.bg_param_pill_selected else R.drawable.bg_param_pill
-            )
-            if (!enabled) {
-                binding.faceReticle.visibility = View.GONE
-            }
-            activeSettingsBinding?.switchAiTracking?.isChecked = enabled
-        }
-
         updateAiTrackUI(settings.isAiTrackingEnabled)
 
         binding.btnAiTrack.setOnClickListener {
-            val newState = streamer.toggleAiTracking()
+            val newState = streamer?.toggleAiTracking() ?: false
             updateAiTrackUI(newState)
             showGestureFeedbackToast(if (newState) "AI tracking on" else "AI tracking off")
-        }
-
-        streamer.onAiTrackingStateChanged = { active ->
-            runOnUiThread {
-                updateAiTrackUI(active)
-            }
-        }
-
-        streamer.onGestureFeedback = { message ->
-            runOnUiThread {
-                showGestureFeedbackToast(message)
-            }
-        }
-
-        streamer.onAiFaceTrackingUpdate = { hasFace, bounds ->
-            runOnUiThread {
-                updateFaceReticle(hasFace, bounds)
-            }
         }
 
         updateFlipPills()
@@ -271,7 +289,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     private fun applyPreviewFlips(horizontal: Boolean, vertical: Boolean) {
         settings.flipHorizontal = horizontal
         settings.flipVertical = vertical
-        streamer.setPreviewFlips(horizontal, vertical)
+        streamer?.setPreviewFlips(horizontal, vertical)
         updateFlipPills()
         activeSettingsBinding?.switchFlipH?.isChecked = horizontal
         activeSettingsBinding?.switchFlipV?.isChecked = vertical
@@ -295,7 +313,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         val vh = preview.height.toFloat()
         if (vw <= 0f || vh <= 0f) return
 
-        val rot = streamer.sensorOrientation
+        val rot = streamer?.sensorOrientation ?: 90
         fun mapPoint(nx: Float, ny: Float): Pair<Float, Float> {
             val (bx, by) = when (rot) {
                 90 -> Pair(1f - ny, nx)
@@ -447,17 +465,18 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             binding.btnLensFront.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
             binding.btnLensBack.setTextColor(Color.WHITE)
         }
-        val (optW, optH) = streamer.getOptimalPreviewSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
+        val (optW, optH) = streamer?.getOptimalPreviewSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
+            ?: Pair(1920, 1080)
         val st = binding.cameraPreview.surfaceTexture
         if (st != null) {
             st.setDefaultBufferSize(optW, optH)
             val newSurface = Surface(st)
             previewSurface?.release()
             previewSurface = newSurface
-            streamer.setPreviewSurface(newSurface)
+            streamingService?.attachPreview(newSurface)
         }
         adjustPreviewAspectRatio(optW, optH)
-        streamer.switchLens(isBack)
+        streamingService?.applyLensSwitch(isBack)
     }
 
     private fun setupOpticalControls() {
@@ -471,8 +490,9 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
         // --- 2. Torch / Flash ---
         binding.btnTorch.setOnClickListener {
-            val newState = !streamer.isTorchOn
-            streamer.setTorch(newState)
+            val s = streamer ?: return@setOnClickListener
+            val newState = !s.isTorchOn
+            s.setTorch(newState)
             if (newState) {
                 binding.btnTorch.setColorFilter(Color.parseColor("#FFD54F"))
             } else {
@@ -496,7 +516,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             val k = kelvin.coerceIn(2000, 8000)
             settings.lastKelvin = k
             settings.isManualWb = true
-            streamer.setWhiteBalanceKelvin(k)
+            streamer?.setWhiteBalanceKelvin(k)
             binding.txtWbValue.text = "${k}K"
             binding.valPillWb.text = "${k}K"
             binding.seekWb.isEnabled = true
@@ -506,7 +526,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
         fun applyAutoWb() {
             settings.isManualWb = false
-            streamer.setAutoWhiteBalance()
+            streamer?.setAutoWhiteBalance()
             binding.txtWbValue.text = "AUTO (AWB)"
             binding.valPillWb.text = "AUTO"
             binding.seekWb.isEnabled = false
@@ -524,7 +544,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
                     val k = 2000 + progress
-                    streamer.setWhiteBalanceKelvin(k)
+                    streamer?.setWhiteBalanceKelvin(k)
                     binding.txtWbValue.text = "${k}K"
                     binding.valPillWb.text = "${k}K"
                     highlightWbPreset(null)
@@ -567,9 +587,10 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         }
 
         fun applyIsoChange(iso: Int) {
-            val clamped = iso.coerceIn(streamer.minIso, streamer.maxIso)
-            streamer.setIso(clamped)
-            val frac = if (streamer.maxIso > streamer.minIso) (clamped - streamer.minIso).toFloat() / (streamer.maxIso - streamer.minIso).toFloat() else 0f
+            val s = streamer ?: return
+            val clamped = iso.coerceIn(s.minIso, s.maxIso)
+            s.setIso(clamped)
+            val frac = if (s.maxIso > s.minIso) (clamped - s.minIso).toFloat() / (s.maxIso - s.minIso).toFloat() else 0f
             binding.seekIso.progress = (frac * 10000).toInt()
             updateIsoDisplay(clamped, false)
             binding.btnIsoAuto.text = "MANUAL"
@@ -580,9 +601,10 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         binding.seekIso.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
+                    val s = streamer ?: return
                     val frac = progress.toFloat() / 10000f
-                    val iso = (streamer.minIso + frac * (streamer.maxIso - streamer.minIso)).roundToInt()
-                    streamer.setIso(iso)
+                    val iso = (s.minIso + frac * (s.maxIso - s.minIso)).roundToInt()
+                    s.setIso(iso)
                     updateIsoDisplay(iso, false)
                     binding.btnIsoAuto.text = "MANUAL"
                     binding.btnIsoAuto.setBackgroundColor(ContextCompat.getColor(this@DroidCamActivity, R.color.exposure_amber))
@@ -594,40 +616,46 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         })
 
         binding.btnIsoAuto.setOnClickListener {
-            val willBeAuto = streamer.isManualIso
-            streamer.setAutoIso(willBeAuto)
+            val s = streamer ?: return@setOnClickListener
+            val willBeAuto = s.isManualIso
+            s.setAutoIso(willBeAuto)
             if (willBeAuto) {
                 binding.btnIsoAuto.text = "AUTO"
                 binding.btnIsoAuto.setBackgroundColor(ContextCompat.getColor(this, R.color.accent_green))
                 binding.btnIsoAuto.setTextColor(Color.BLACK)
-                updateIsoDisplay(streamer.actualSensorIso, true)
+                updateIsoDisplay(s.actualSensorIso, true)
             } else {
                 binding.btnIsoAuto.text = "MANUAL"
                 binding.btnIsoAuto.setBackgroundColor(ContextCompat.getColor(this, R.color.exposure_amber))
                 binding.btnIsoAuto.setTextColor(Color.BLACK)
-                streamer.setIso(streamer.currentIso)
-                updateIsoDisplay(streamer.currentIso, false)
+                s.setIso(s.currentIso)
+                updateIsoDisplay(s.currentIso, false)
             }
         }
 
         binding.btnIsoMinus.setOnClickListener {
-            applyIsoChange(streamer.currentIso - 100)
+            val s = streamer ?: return@setOnClickListener
+            applyIsoChange(s.currentIso - 100)
         }
 
         binding.btnIsoPlus.setOnClickListener {
-            applyIsoChange(streamer.currentIso + 100)
+            val s = streamer ?: return@setOnClickListener
+            applyIsoChange(s.currentIso + 100)
         }
 
         val openIsoDialog = {
-            showDirectNumericEditDialog(
-                title = "Direct ISO Entry",
-                currentValueStr = "${streamer.currentIso}",
-                unitLabel = "ISO",
-                minVal = streamer.minIso.toFloat(),
-                maxVal = streamer.maxIso.toFloat(),
-                isInteger = true
-            ) { value ->
-                applyIsoChange(value.roundToInt())
+            val s = streamer
+            if (s != null) {
+                showDirectNumericEditDialog(
+                    title = "Direct ISO Entry",
+                    currentValueStr = "${s.currentIso}",
+                    unitLabel = "ISO",
+                    minVal = s.minIso.toFloat(),
+                    maxVal = s.maxIso.toFloat(),
+                    isInteger = true
+                ) { value ->
+                    applyIsoChange(value.roundToInt())
+                }
             }
         }
         binding.txtIsoValue.setOnClickListener { openIsoDialog() }
@@ -645,11 +673,12 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         }
 
         fun applyEvSteps(steps: Int) {
-            val clamped = steps.coerceIn(streamer.minExposureCompensation, streamer.maxExposureCompensation)
-            streamer.setExposureCompensation(clamped)
-            val evReal = clamped * streamer.exposureCompensationStep
-            val span = streamer.maxExposureCompensation - streamer.minExposureCompensation
-            val frac = if (span > 0) (clamped - streamer.minExposureCompensation).toFloat() / span.toFloat() else 0.5f
+            val s = streamer ?: return
+            val clamped = steps.coerceIn(s.minExposureCompensation, s.maxExposureCompensation)
+            s.setExposureCompensation(clamped)
+            val evReal = clamped * s.exposureCompensationStep
+            val span = s.maxExposureCompensation - s.minExposureCompensation
+            val frac = if (span > 0) (clamped - s.minExposureCompensation).toFloat() / span.toFloat() else 0.5f
             binding.seekEv.progress = (frac * 10000).toInt()
             updateEvDisplay(evReal)
         }
@@ -657,12 +686,13 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         binding.seekEv.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
-                    val min = streamer.minExposureCompensation
-                    val max = streamer.maxExposureCompensation
+                    val s = streamer ?: return
+                    val min = s.minExposureCompensation
+                    val max = s.maxExposureCompensation
                     val frac = progress.toFloat() / 10000f
                     val evVal = (min + frac * (max - min)).roundToInt()
-                    streamer.setExposureCompensation(evVal)
-                    val evReal = evVal * streamer.exposureCompensationStep
+                    s.setExposureCompensation(evVal)
+                    val evReal = evVal * s.exposureCompensationStep
                     updateEvDisplay(evReal)
                 }
             }
@@ -671,7 +701,8 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         })
 
         binding.btnEvMinus.setOnClickListener {
-            applyEvSteps(streamer.currentExposureCompensation - 1)
+            val s = streamer ?: return@setOnClickListener
+            applyEvSteps(s.currentExposureCompensation - 1)
         }
 
         binding.btnEvReset.setOnClickListener {
@@ -679,12 +710,14 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         }
 
         binding.btnEvPlus.setOnClickListener {
-            applyEvSteps(streamer.currentExposureCompensation + 1)
+            val s = streamer ?: return@setOnClickListener
+            applyEvSteps(s.currentExposureCompensation + 1)
         }
 
         binding.btnAeLock.setOnClickListener {
-            val newLock = !streamer.isAeLocked
-            streamer.setAeLock(newLock)
+            val s = streamer ?: return@setOnClickListener
+            val newLock = !s.isAeLocked
+            s.setAeLock(newLock)
             if (newLock) {
                 binding.btnAeLock.text = "LOCKED"
                 binding.btnAeLock.setBackgroundColor(Color.parseColor("#E53935"))
@@ -695,20 +728,23 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         }
 
         val openEvDialog = {
-            val curEvReal = streamer.currentExposureCompensation * streamer.exposureCompensationStep
-            val minEvReal = streamer.minExposureCompensation * streamer.exposureCompensationStep
-            val maxEvReal = streamer.maxExposureCompensation * streamer.exposureCompensationStep
-            showDirectNumericEditDialog(
-                title = "Direct EV Entry",
-                currentValueStr = String.format("%.1f", curEvReal),
-                unitLabel = "EV",
-                minVal = minEvReal,
-                maxVal = maxEvReal,
-                isInteger = false
-            ) { value ->
-                val step = if (streamer.exposureCompensationStep > 0) streamer.exposureCompensationStep else 0.5f
-                val evSteps = (value / step).roundToInt()
-                applyEvSteps(evSteps)
+            val s = streamer
+            if (s != null) {
+                val curEvReal = s.currentExposureCompensation * s.exposureCompensationStep
+                val minEvReal = s.minExposureCompensation * s.exposureCompensationStep
+                val maxEvReal = s.maxExposureCompensation * s.exposureCompensationStep
+                showDirectNumericEditDialog(
+                    title = "Direct EV Entry",
+                    currentValueStr = String.format("%.1f", curEvReal),
+                    unitLabel = "EV",
+                    minVal = minEvReal,
+                    maxVal = maxEvReal,
+                    isInteger = false
+                ) { value ->
+                    val step = if (s.exposureCompensationStep > 0) s.exposureCompensationStep else 0.5f
+                    val evSteps = (value / step).roundToInt()
+                    applyEvSteps(evSteps)
+                }
             }
         }
         binding.txtEvValue.setOnClickListener { openEvDialog() }
@@ -719,61 +755,28 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             showCard(binding.zoomCard, binding.btnZoomToggle)
         }
 
-        val zoomChips = mapOf(
-            binding.btnZoom05x to 0.5f,
-            binding.btnZoom1x to 1.0f,
-            binding.btnZoom2x to 2.0f,
-            binding.btnZoom3x to 3.0f,
-            binding.btnZoom5x to 5.0f,
-            binding.btnZoom10x to 10.0f
-        )
-
-        fun highlightZoomPreset(z: Float) {
-            zoomChips.forEach { (btn, value) ->
-                val isClose = kotlin.math.abs(z - value) < 0.08f
-                btn.setBackgroundColor(if (isClose) ContextCompat.getColor(this, R.color.accent_green) else Color.parseColor("#222430"))
-                btn.setTextColor(if (isClose) Color.BLACK else Color.WHITE)
-            }
-        }
-
-        fun updateZoomDisplay(z: Float, updateSlider: Boolean = true) {
-            val str = String.format("%.1f×", z)
-            binding.txtZoomValue.text = str
-            binding.valPillZoom.text = str
-            if (updateSlider) {
-                val span = streamer.maxZoomFactor - streamer.minZoomFactor
-                val frac = if (span > 0f) (z - streamer.minZoomFactor) / span else 0f
-                binding.seekZoom.progress = (frac * 10000).toInt()
-            }
-            highlightZoomPreset(z)
-        }
-
         fun applyZoom(z: Float) {
-            val clamped = z.coerceIn(streamer.minZoomFactor, streamer.maxZoomFactor)
-            streamer.setZoom(clamped)
+            val s = streamer ?: return
+            val clamped = z.coerceIn(s.minZoomFactor, s.maxZoomFactor)
+            s.setZoom(clamped)
             updateZoomDisplay(clamped, updateSlider = true)
         }
 
         binding.seekZoom.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
-                    val minZ = streamer.minZoomFactor
-                    val maxZ = streamer.maxZoomFactor
+                    val s = streamer ?: return
+                    val minZ = s.minZoomFactor
+                    val maxZ = s.maxZoomFactor
                     val frac = progress.toFloat() / 10000f
                     val z = minZ + frac * (maxZ - minZ)
-                    streamer.setZoom(z)
+                    s.setZoom(z)
                     updateZoomDisplay(z, updateSlider = false)
                 }
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
-
-        streamer.onZoomChanged = { z ->
-            runOnUiThread {
-                updateZoomDisplay(z, updateSlider = true)
-            }
-        }
 
         binding.btnZoom05x.setOnClickListener { applyZoom(0.5f) }
         binding.btnZoom1x.setOnClickListener { applyZoom(1.0f) }
@@ -783,14 +786,17 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         binding.btnZoom10x.setOnClickListener { applyZoom(10.0f) }
 
         val openZoomDialog = {
-            showDirectNumericEditDialog(
-                title = "Direct Zoom Entry",
-                currentValueStr = String.format("%.2f", streamer.currentZoom),
-                unitLabel = "×",
-                minVal = streamer.minZoomFactor,
-                maxVal = streamer.maxZoomFactor,
-                isInteger = false
-            ) { value -> applyZoom(value) }
+            val s = streamer
+            if (s != null) {
+                showDirectNumericEditDialog(
+                    title = "Direct Zoom Entry",
+                    currentValueStr = String.format("%.2f", s.currentZoom),
+                    unitLabel = "×",
+                    minVal = s.minZoomFactor,
+                    maxVal = s.maxZoomFactor,
+                    isInteger = false
+                ) { value -> applyZoom(value) }
+            }
         }
         binding.txtZoomValue.setOnClickListener { openZoomDialog() }
 
@@ -816,30 +822,32 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         setFocusSegmentFn = ::setFocusSegment
 
         binding.btnFocusAfs.setOnClickListener {
-            streamer.setAutoAf(CameraMetadata.CONTROL_AF_MODE_AUTO)
+            streamer?.setAutoAf(CameraMetadata.CONTROL_AF_MODE_AUTO)
             setFocusSegment(binding.btnFocusAfs)
             updateFocusDisplay("AF-S")
         }
 
         binding.btnFocusAuto.setOnClickListener {
-            streamer.setAutoAf(CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+            streamer?.setAutoAf(CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
             setFocusSegment(binding.btnFocusAuto)
             updateFocusDisplay("AF-C")
         }
 
         binding.btnFocusMf.setOnClickListener {
+            val s = streamer ?: return@setOnClickListener
             setFocusSegment(binding.btnFocusMf)
-            val dist = binding.seekFocus.progress.toFloat() / 10000f * streamer.maxFocusDistance
-            streamer.setFocusDistance(dist)
+            val dist = binding.seekFocus.progress.toFloat() / 10000f * s.maxFocusDistance
+            s.setFocusDistance(dist)
             updateFocusDisplay(String.format("%.2f dpt", dist))
         }
 
         binding.seekFocus.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
+                    val s = streamer ?: return
                     val frac = progress.toFloat() / 10000f
-                    val dist = frac * streamer.maxFocusDistance
-                    streamer.setFocusDistance(dist)
+                    val dist = frac * s.maxFocusDistance
+                    s.setFocusDistance(dist)
                     setFocusSegment(binding.btnFocusMf)
                     updateFocusDisplay(String.format("%.2f dpt", dist))
                 }
@@ -849,21 +857,51 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         })
 
         binding.btnFocusDirect.setOnClickListener {
+            val s = streamer ?: return@setOnClickListener
             showDirectNumericEditDialog(
                 title = "Direct Focus Distance",
-                currentValueStr = String.format("%.2f", streamer.currentFocusDistance),
+                currentValueStr = String.format("%.2f", s.currentFocusDistance),
                 unitLabel = "diopters (0 = inf)",
                 minVal = 0.0f,
-                maxVal = streamer.maxFocusDistance,
+                maxVal = s.maxFocusDistance,
                 isInteger = false
             ) { value ->
-                streamer.setFocusDistance(value)
-                val frac = if (streamer.maxFocusDistance > 0f) value / streamer.maxFocusDistance else 0f
+                s.setFocusDistance(value)
+                val frac = if (s.maxFocusDistance > 0f) value / s.maxFocusDistance else 0f
                 binding.seekFocus.progress = (frac * 10000).toInt()
                 setFocusSegment(binding.btnFocusMf)
                 updateFocusDisplay(String.format("%.2f dpt", value))
             }
         }
+    }
+
+    private fun highlightZoomPreset(z: Float) {
+        val zoomChips = mapOf(
+            binding.btnZoom05x to 0.5f,
+            binding.btnZoom1x to 1.0f,
+            binding.btnZoom2x to 2.0f,
+            binding.btnZoom3x to 3.0f,
+            binding.btnZoom5x to 5.0f,
+            binding.btnZoom10x to 10.0f
+        )
+        zoomChips.forEach { (btn, value) ->
+            val isClose = kotlin.math.abs(z - value) < 0.08f
+            btn.setBackgroundColor(if (isClose) ContextCompat.getColor(this, R.color.accent_green) else Color.parseColor("#222430"))
+            btn.setTextColor(if (isClose) Color.BLACK else Color.WHITE)
+        }
+    }
+
+    private fun updateZoomDisplay(z: Float, updateSlider: Boolean = true) {
+        val str = String.format("%.1f×", z)
+        binding.txtZoomValue.text = str
+        binding.valPillZoom.text = str
+        if (updateSlider) {
+            val s = streamer ?: return
+            val span = s.maxZoomFactor - s.minZoomFactor
+            val frac = if (span > 0f) (z - s.minZoomFactor) / span else 0f
+            binding.seekZoom.progress = (frac * 10000).toInt()
+        }
+        highlightZoomPreset(z)
     }
 
     private fun mapTouchToSensor(touchX: Float, touchY: Float, viewWidth: Int, viewHeight: Int): Pair<Float, Float> {
@@ -874,7 +912,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         if (settings.flipHorizontal) u = 1f - u
         if (settings.flipVertical) v = 1f - v
 
-        val sensorRot = streamer.sensorOrientation
+        val sensorRot = streamer?.sensorOrientation ?: 90
         val (sx, sy) = when (sensorRot) {
             90 -> Pair(v, 1f - u)
             270 -> Pair(1f - v, u)
@@ -928,7 +966,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
                 }
 
                 val (normSensorX, normSensorY) = mapTouchToSensor(x, y, binding.cameraPreview.width, binding.cameraPreview.height)
-                streamer.triggerTapToFocus(normSensorX, normSensorY)
+                streamer?.triggerTapToFocus(normSensorX, normSensorY)
                 setFocusSegmentFn?.invoke(binding.btnFocusAfs)
                 updateFocusDisplayFn?.invoke("AF-S")
                 true
@@ -1141,7 +1179,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         )
         fun updateFlickerUI(mode: String) {
             settings.antiFlickerMode = mode
-            streamer.setAntiFlicker(mode)
+            streamer?.setAntiFlicker(mode)
             flickerMap.forEach { (btn, m) ->
                 styleChip(btn, m.equals(mode, ignoreCase = true))
             }
@@ -1186,12 +1224,12 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
         sheetBinding.switchAiTracking.isChecked = settings.isAiTrackingEnabled
         sheetBinding.switchAiTracking.setOnCheckedChangeListener { _, isChecked ->
-            streamer.setAiTrackingEnabled(isChecked)
+            streamer?.setAiTrackingEnabled(isChecked)
         }
 
         sheetBinding.switchGestures.isChecked = settings.isGesturesEnabled
         sheetBinding.switchGestures.setOnCheckedChangeListener { _, isChecked ->
-            streamer.setGesturesEnabled(isChecked)
+            streamer?.setGesturesEnabled(isChecked)
         }
 
         sheetBinding.btnCloseSettings.setOnClickListener {
@@ -1426,7 +1464,8 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             lp.screenBrightness = 0.01f // AMOLED minimum brightness
             val mode = if (isUsbConnection) "USB" else "Wi-Fi"
             val mbps = formatBitrateKbps(settings.targetBitrateKbps)
-            binding.dimInstructions.text = "Encoding in background • $mode\n${settings.targetResolutionWidth}×${settings.targetResolutionHeight} • ${streamer.currentFormat.uppercase()} • ${settings.targetFps} fps • $mbps"
+            val fmt = streamer?.currentFormat?.uppercase() ?: "H264"
+            binding.dimInstructions.text = "Encoding in background • $mode\n${settings.targetResolutionWidth}×${settings.targetResolutionHeight} • $fmt • ${settings.targetFps} fps • $mbps"
         } else {
             binding.dimOverlay.visibility = View.GONE
             lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
@@ -1438,7 +1477,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     private val durationHandler = Handler(Looper.getMainLooper())
     private val durationRunnable = object : Runnable {
         override fun run() {
-            if (droidCamServer.isStreaming) {
+            if (droidCamServer?.isStreaming == true) {
                 val elapsedSec = (SystemClock.elapsedRealtime() - streamStartTimeMs) / 1000
                 val hrs = elapsedSec / 3600
                 val mins = (elapsedSec % 3600) / 60
@@ -1454,8 +1493,9 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     }
 
     private fun syncHudToCapabilities() {
-        val minIso = streamer.minIso
-        val maxIso = streamer.maxIso
+        val s = streamer ?: return
+        val minIso = s.minIso
+        val maxIso = s.maxIso
         val isoTicks = listOf(
             binding.tickIso0, binding.tickIso1, binding.tickIso2,
             binding.tickIso3, binding.tickIso4, binding.tickIso5, binding.tickIso6
@@ -1467,37 +1507,37 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         }
 
         // Torch availability (front camera typically lacks flash)
-        binding.btnTorch.visibility = if (streamer.hasFlash) View.VISIBLE else View.GONE
-        if (!streamer.hasFlash && streamer.isTorchOn) {
-            streamer.setTorch(false)
+        binding.btnTorch.visibility = if (s.hasFlash) View.VISIBLE else View.GONE
+        if (!s.hasFlash && s.isTorchOn) {
+            s.setTorch(false)
             binding.btnTorch.setColorFilter(Color.WHITE)
         }
 
         // Zoom limits & preset availability
-        binding.btnZoom05x.visibility = if (streamer.minZoomFactor < 0.75f) View.VISIBLE else View.GONE
-        val spanZ = streamer.maxZoomFactor - streamer.minZoomFactor
-        val fracZ = if (spanZ > 0f) (streamer.currentZoom - streamer.minZoomFactor) / spanZ else 0f
+        binding.btnZoom05x.visibility = if (s.minZoomFactor < 0.75f) View.VISIBLE else View.GONE
+        val spanZ = s.maxZoomFactor - s.minZoomFactor
+        val fracZ = if (spanZ > 0f) (s.currentZoom - s.minZoomFactor) / spanZ else 0f
         binding.seekZoom.progress = (fracZ * 10000).toInt()
-        val zoomStr = String.format("%.1f×", streamer.currentZoom)
+        val zoomStr = String.format("%.1f×", s.currentZoom)
         binding.txtZoomValue.text = zoomStr
         binding.valPillZoom.text = zoomStr
 
         // ISO state
-        if (!streamer.isManualIso) {
+        if (!s.isManualIso) {
             binding.valPillIso.text = "AUTO"
             binding.txtIsoValue.text = "AUTO"
         } else {
-            val fracIso = if (maxIso > minIso) (streamer.currentIso - minIso).toFloat() / (maxIso - minIso).toFloat() else 0f
+            val fracIso = if (maxIso > minIso) (s.currentIso - minIso).toFloat() / (maxIso - minIso).toFloat() else 0f
             binding.seekIso.progress = (fracIso * 10000).toInt()
-            binding.valPillIso.text = "${streamer.currentIso}"
-            binding.txtIsoValue.text = "${streamer.currentIso}"
+            binding.valPillIso.text = "${s.currentIso}"
+            binding.txtIsoValue.text = "${s.currentIso}"
         }
 
         // Focus state
-        if (streamer.isManualFocus) {
-            val fracF = if (streamer.maxFocusDistance > 0f) streamer.currentFocusDistance / streamer.maxFocusDistance else 0f
+        if (s.isManualFocus) {
+            val fracF = if (s.maxFocusDistance > 0f) s.currentFocusDistance / s.maxFocusDistance else 0f
             binding.seekFocus.progress = (fracF * 10000).toInt()
-            val focusStr = String.format("%.2f dpt", streamer.currentFocusDistance)
+            val focusStr = String.format("%.2f dpt", s.currentFocusDistance)
             binding.txtFocusValue.text = focusStr
             binding.valPillFocus.text = focusStr
         }
@@ -1521,10 +1561,11 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     private fun updateConnectionPill() {
         val localIp = getLocalIpAddress()
         val bitrate = formatBitrateKbps(settings.targetBitrateKbps)
-        if (droidCamServer.isStreaming) {
+        val fmt = streamer?.currentFormat?.uppercase() ?: "H264"
+        if (droidCamServer?.isStreaming == true) {
             binding.txtConnectionPill.text = if (isUsbConnection) "USB · live" else "Wi-Fi · live"
             binding.txtSubStatus.text =
-                "${settings.targetResolutionWidth}×${settings.targetResolutionHeight} • ${streamer.currentFormat.uppercase()} • ${settings.targetFps} fps • $bitrate"
+                "${settings.targetResolutionWidth}×${settings.targetResolutionHeight} • $fmt • ${settings.targetFps} fps • $bitrate"
         } else {
             binding.txtConnectionPill.text = "Waiting for OBS"
             binding.txtSubStatus.text = if (localIp != null) {
@@ -1552,15 +1593,15 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         return null
     }
 
-    private var previewSurface: Surface? = null
-
     private fun applyResolutionChange(
         width: Int,
         height: Int,
-        format: String = streamer.currentFormat,
+        format: String? = null,
         forceStartStream: Boolean = false
     ) {
-        val mimeType = if (format.equals("hevc", ignoreCase = true)) {
+        val s = streamer
+        val targetFmt = format ?: s?.currentFormat ?: "h264"
+        val mimeType = if (targetFmt.equals("hevc", ignoreCase = true)) {
             MediaFormat.MIMETYPE_VIDEO_HEVC
         } else {
             MediaFormat.MIMETYPE_VIDEO_AVC
@@ -1575,23 +1616,18 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         settings.targetResolutionWidth = validW
         settings.targetResolutionHeight = validH
 
-        val (optW, optH) = streamer.getOptimalPreviewSize(validW, validH)
+        val (optW, optH) = s?.getOptimalPreviewSize(validW, validH) ?: Pair(validW, validH)
         val st = binding.cameraPreview.surfaceTexture
-        var newSurface: Surface? = null
         if (st != null) {
             st.setDefaultBufferSize(optW, optH)
-            newSurface = Surface(st)
+            val newSurface = Surface(st)
             previewSurface?.release()
             previewSurface = newSurface
-            streamer.setPreviewSurface(newSurface)
+            streamingService?.attachPreview(newSurface)
         }
         adjustPreviewAspectRatio(optW, optH)
 
-        if (forceStartStream || droidCamServer.isStreaming) {
-            streamer.startStream(format, validW, validH, settings.targetFps, isBackCamera)
-        } else {
-            streamer.startLocalPreview(isBackCamera)
-        }
+        streamingService?.applyResolutionChange(validW, validH, targetFmt, forceStartStream)
         updateConnectionPill()
         activeSettingsUiUpdater?.invoke(validW, validH, settings.targetFps)
     }
@@ -1608,7 +1644,8 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
     private fun configureTransform(viewWidth: Int, viewHeight: Int) {
         if (viewWidth <= 0 || viewHeight <= 0) return
-        val (optW, optH) = streamer.getOptimalPreviewSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
+        val (optW, optH) = streamer?.getOptimalPreviewSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
+            ?: Pair(1920, 1080)
         val bufferW = optW
         val bufferH = optH
         if (bufferW <= 0 || bufferH <= 0) return
@@ -1644,7 +1681,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         }
 
         val bothFlips = settings.flipHorizontal && settings.flipVertical
-        if (!(bothFlips && streamer.rotateAndCrop180Active)) {
+        if (!(bothFlips && (streamer?.rotateAndCrop180Active == true))) {
             if (settings.flipHorizontal) matrix.postScale(-1f, 1f, centerX, centerY)
             if (settings.flipVertical) matrix.postScale(1f, -1f, centerX, centerY)
         }
@@ -1655,13 +1692,15 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     // --- TextureView.SurfaceTextureListener ---
 
     override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
-        val (optW, optH) = streamer.getOptimalPreviewSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
+        val (optW, optH) = streamer?.getOptimalPreviewSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
+            ?: Pair(1920, 1080)
         surfaceTexture.setDefaultBufferSize(optW, optH)
         adjustPreviewAspectRatio(optW, optH)
         configureTransform(width, height)
         val surface = Surface(surfaceTexture)
+        previewSurface?.release()
         previewSurface = surface
-        streamer.onScreenOn(surface)
+        streamingService?.attachPreview(surface)
     }
 
     override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
@@ -1669,115 +1708,78 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     }
 
     override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+        streamingService?.detachPreview()
         previewSurface?.release()
         previewSurface = null
-        streamer.onScreenOff()
         return true
     }
 
     override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {}
 
-    // --- DroidCamServer.Listener ---
+    // --- StreamingService.SessionObserver ---
 
-    private var isUsbConnection = false
-
-    override fun getSessionState(): DroidCamServer.SessionState {
-        return DroidCamServer.SessionState(
-            status = if (droidCamServer.isStreaming) "streaming" else "idle",
-            isStreaming = droidCamServer.isStreaming,
-            width = settings.targetResolutionWidth,
-            height = settings.targetResolutionHeight,
-            fps = settings.targetFps,
-            format = streamer.currentFormat,
-            lens = if (isBackCamera) "back" else "front",
-            tally = currentTallyState
-        )
-    }
-
-    override fun onSessionUpdateRequested(
-        width: Int?,
-        height: Int?,
-        fps: Int?,
-        format: String?,
-        lens: String?
-    ): Boolean {
-        runOnUiThread {
-            var changed = false
-            if (lens != null) {
-                val wantBack = lens.equals("back", ignoreCase = true) || lens.equals("rear", ignoreCase = true)
-                if (wantBack != isBackCamera) {
-                    applyLensSwitch(wantBack)
-                    changed = true
-                }
-            }
-            if (fps != null) {
-                val curW = width ?: settings.targetResolutionWidth
-                val curH = height ?: settings.targetResolutionHeight
-                val maxFps = ResolutionFpsMatrix.getMaxFpsForResolution(this, curW, curH, isBackCamera)
-                val clampedFps = fps.coerceIn(1, maxFps)
-                if (settings.targetFps != clampedFps) {
-                    settings.targetFps = clampedFps
-                    changed = true
-                }
-            }
-            if (width != null && height != null) {
-                val targetFmt = format ?: streamer.currentFormat
-                applyResolutionChange(width, height, targetFmt, forceStartStream = droidCamServer.isStreaming)
-                changed = true
-            } else if (format != null && !format.equals(streamer.currentFormat, ignoreCase = true)) {
-                applyResolutionChange(settings.targetResolutionWidth, settings.targetResolutionHeight, format, forceStartStream = droidCamServer.isStreaming)
-                changed = true
-            }
-
-            if (changed) {
-                Toast.makeText(this, "OBS synced: ${settings.targetResolutionWidth}×${settings.targetResolutionHeight} @ ${settings.targetFps}fps", Toast.LENGTH_SHORT).show()
-                activeSettingsUiUpdater?.invoke(settings.targetResolutionWidth, settings.targetResolutionHeight, settings.targetFps)
-                updateConnectionPill()
-            }
-        }
-        return true
-    }
-
-    override fun onVideoStreamStarted(format: String, width: Int, height: Int) {
-        runOnUiThread {
-            applyResolutionChange(width, height, format, forceStartStream = true)
-            activeSettingsUiUpdater?.invoke(width, height, settings.targetFps)
-            updateTallyBadge("program")
-            streamStartTimeMs = SystemClock.elapsedRealtime()
-            durationHandler.post(durationRunnable)
-            StreamingService.updateStatus(this, "On air in OBS")
-        }
-    }
-
-    override fun onVideoStreamStopped() {
+    override fun onSessionStateChanged() {
         runOnUiThread {
             updateConnectionPill()
-            updateTallyBadge("idle")
-            durationHandler.removeCallbacks(durationRunnable)
-            binding.dimDuration.text = "00:00:00"
-            StreamingService.updateStatus(this, "Waiting for OBS")
+            val (optW, optH) = streamer?.getOptimalPreviewSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
+                ?: Pair(1920, 1080)
+            adjustPreviewAspectRatio(optW, optH)
+            activeSettingsUiUpdater?.invoke(settings.targetResolutionWidth, settings.targetResolutionHeight, settings.targetFps)
         }
-        streamer.stopStream()
     }
 
     override fun onTallyChanged(tallyState: String) {
         currentTallyState = tallyState
         runOnUiThread {
             updateTallyBadge(tallyState)
+            if (tallyState.equals("program", ignoreCase = true)) {
+                if (streamStartTimeMs == 0L) {
+                    streamStartTimeMs = SystemClock.elapsedRealtime()
+                    durationHandler.post(durationRunnable)
+                }
+            } else {
+                durationHandler.removeCallbacks(durationRunnable)
+                streamStartTimeMs = 0L
+                binding.dimDuration.text = "00:00:00"
+            }
         }
     }
 
-    override fun onClientConnected(remoteAddress: String) {
-        isUsbConnection = remoteAddress.contains("127.0.0.1") || remoteAddress.contains("localhost")
+    override fun onClientConnectionChanged(connected: Boolean, remoteAddress: String, isUsb: Boolean) {
+        isUsbConnection = isUsb
         runOnUiThread {
             updateConnectionPill()
         }
     }
 
-    override fun onClientDisconnected() {
-        isUsbConnection = false
+    override fun onAiTrackingStateChanged(enabled: Boolean) {
         runOnUiThread {
-            updateConnectionPill()
+            updateAiTrackUI(enabled)
+        }
+    }
+
+    override fun onAiFaceTrackingUpdate(hasFace: Boolean, bounds: RectF?) {
+        runOnUiThread {
+            updateFaceReticle(hasFace, bounds)
+        }
+    }
+
+    override fun onGestureFeedback(message: String) {
+        runOnUiThread {
+            showGestureFeedbackToast(message)
+        }
+    }
+
+    override fun onZoomChanged(zoom: Float) {
+        runOnUiThread {
+            updateZoomDisplay(zoom, updateSlider = true)
+        }
+    }
+
+    override fun onCapabilitiesChanged() {
+        runOnUiThread {
+            syncHudToCapabilities()
+            configureTransform(binding.cameraPreview.width, binding.cameraPreview.height)
         }
     }
 
@@ -1821,11 +1823,16 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     override fun onDestroy() {
         super.onDestroy()
         durationHandler.removeCallbacks(durationRunnable)
+        streamingService?.unregisterObserver(this)
+        if (isBound) {
+            unbindService(serviceConnection)
+            isBound = false
+        }
         if (isFinishing) {
-            mdnsAdvertiser.stopAdvertising()
-            droidCamServer.stop()
-            streamer.release()
-            StreamingService.stopService(this)
+            val isStreaming = streamingService?.server?.isStreaming == true
+            if (!settings.backgroundStreaming && !isStreaming) {
+                StreamingService.stopService(this)
+            }
         }
     }
 }
