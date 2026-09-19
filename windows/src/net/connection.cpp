@@ -17,7 +17,7 @@ Connection::Connection(
 	if (!initialBytes.empty())
 	{
 		asio::post(this->socket.get_executor(), [this, initialBytes = std::move(initialBytes)]() {
-			onBytesReceived(this->shared_from_this(), initialBytes.data(), initialBytes.size());
+			this->onBytesReceived(this->shared_from_this(), initialBytes.data(), initialBytes.size());
 		});
 	}
 	Read();

@@ -177,8 +177,10 @@ if exist "$(ProjectDir)3rdparty\softcam\examples\softcam_installer\x64\Release\s
     <ClCompile Include="src\video\framescaler.cpp" />
     <ClCompile Include="src\video\guipreviewscaler.cpp" />
     <ClCompile Include="src\video\1_1scaler.cpp" />
+    <ClCompile Include="src\gui\qrcodegen.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\qrcodegen.hpp" />
     <ClInclude Include="src\adb.h" />
     <ClInclude Include="src\application.h" />
     <ClInclude Include="src\canvas.h" />
