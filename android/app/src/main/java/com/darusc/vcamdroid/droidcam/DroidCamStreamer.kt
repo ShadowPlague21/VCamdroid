@@ -30,6 +30,7 @@ import com.darusc.vcamdroid.capabilities.VideoCapabilityValidator
 import com.darusc.vcamdroid.util.Logger
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
+import java.util.Locale
 import kotlin.math.ln
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -156,8 +157,10 @@ class DroidCamStreamer(
     private var aiThread: HandlerThread? = null
     private var aiHandler: Handler? = null
     private var lastGestureProcessTimeMs = 0L
-    private var aiBitmap: Bitmap? = null
-    private var aiRgbPixels: IntArray? = null
+    private var aiNv21Buffer: ByteArray? = null
+    private var gestureBitmap: Bitmap? = null
+    private var gesturePixels: IntArray? = null
+    private var perfFrameCounter = 0
 
     init {
         currentWidth = settings.targetResolutionWidth
@@ -932,9 +935,15 @@ class DroidCamStreamer(
 
         val useAiPipeline = isStreaming && (settings.isAiTrackingEnabled || settings.isGesturesEnabled)
         if (useAiPipeline) {
-            val aiReader = ImageReader.newInstance(640, 480, ImageFormat.YUV_420_888, 4)
+            val aiReader = ImageReader.newInstance(640, 480, ImageFormat.YUV_420_888, 2)
             aiReader.setOnImageAvailableListener({ reader ->
-                val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                val acquireStartNs = SystemClock.elapsedRealtimeNanos()
+                val img = try {
+                    reader.acquireLatestImage()
+                } catch (_: Exception) {
+                    null
+                } ?: return@setOnImageAvailableListener
+
                 if (!isStreaming) {
                     img.close()
                     return@setOnImageAvailableListener
@@ -952,31 +961,39 @@ class DroidCamStreamer(
 
                     val w = img.width
                     val h = img.height
-                    if (aiBitmap == null || aiBitmap?.width != w || aiBitmap?.height != h) {
-                        aiBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                        aiRgbPixels = IntArray(w * h)
+                    val nv21Size = w * h * 3 / 2
+                    if (aiNv21Buffer == null || aiNv21Buffer?.size != nv21Size) {
+                        aiNv21Buffer = ByteArray(nv21Size)
                     }
+                    val nv21 = aiNv21Buffer!!
 
-                    val bitmap = aiBitmap
-                    val pixels = aiRgbPixels
-                    if (bitmap != null && pixels != null) {
-                        fastYuv420ToRgb(img, pixels)
-                        bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
-                    }
+                    val copyStartNs = SystemClock.elapsedRealtimeNanos()
+                    yuv420ToNv21(img, nv21)
+                    val copyDurationMs = (SystemClock.elapsedRealtimeNanos() - copyStartNs) / 1_000_000f
 
+                    // CRITICAL: Close hardware image immediately (<0.5ms lock time)
                     img.close()
+                    val bufferLockDurationMs = (SystemClock.elapsedRealtimeNanos() - acquireStartNs) / 1_000_000f
 
                     val inferenceRotation = (sensorOrientation + if (rotateAndCrop180Active) 180 else 0) % 360
-                    if (bitmap != null) {
-                        if (needGesture) {
-                            gestureDetectorHelper?.processBitmap(bitmap, inferenceRotation)
-                        }
-                        if (needFace) {
-                            aiTrackerEngine?.processBitmap(bitmap, inferenceRotation)
-                        }
+
+                    if (needGesture) {
+                        val bitmap = nv21ToRgbBitmap(nv21, w, h, scaleFactor = 2)
+                        gestureDetectorHelper?.processBitmap(bitmap, inferenceRotation)
                     }
-                } catch (_: Exception) {
+
+                    if (needFace) {
+                        aiTrackerEngine?.processNv21(nv21, w, h, inferenceRotation)
+                    }
+
+                    perfFrameCounter++
+                    if (perfFrameCounter % 60 == 0) {
+                        val mlPerf = aiTrackerEngine?.lastMlPerfSummary ?: "N/A"
+                        Logger.log("AI_PERF", "Buffer lock: ${String.format(Locale.US, "%.2f", bufferLockDurationMs)}ms (YUV copy: ${String.format(Locale.US, "%.2f", copyDurationMs)}ms) | $mlPerf")
+                    }
+                } catch (e: Exception) {
                     try { img.close() } catch (_: Exception) {}
+                    Logger.log("DROIDCAM_STREAMER", "AI pipeline error: ${e.message}")
                 }
             }, aiHandler)
             aiImageReader = aiReader
@@ -1075,7 +1092,7 @@ class DroidCamStreamer(
         }
     }
 
-    private fun fastYuv420ToRgb(image: Image, outPixels: IntArray) {
+    private fun yuv420ToNv21(image: Image, outNv21: ByteArray) {
         val width = image.width
         val height = image.height
         val planes = image.planes
@@ -1093,31 +1110,70 @@ class DroidCamStreamer(
 
         val yRowStride = yPlane.rowStride
         val yPixelStride = yPlane.pixelStride
+
+        // Fast copy Y plane
+        if (yPixelStride == 1 && yRowStride == width) {
+            yBuffer.get(outNv21, 0, width * height)
+        } else {
+            for (row in 0 until height) {
+                yBuffer.position(row * yRowStride)
+                yBuffer.get(outNv21, row * width, width)
+            }
+        }
+
+        // Fast copy UV planes into NV21 (V followed by U)
         val uRowStride = uPlane.rowStride
-        val uPixelStride = uPlane.pixelStride
         val vRowStride = vPlane.rowStride
+        val uPixelStride = uPlane.pixelStride
         val vPixelStride = vPlane.pixelStride
 
-        var outIndex = 0
-        for (y in 0 until height) {
-            val yRowStart = y * yRowStride
-            val uRowStart = (y shr 1) * uRowStride
-            val vRowStart = (y shr 1) * vRowStride
-            for (x in 0 until width) {
-                val yVal = (yBuffer.get(yRowStart + x * yPixelStride).toInt() and 0xFF) - 16
-                val uvColOffset = (x shr 1) * uPixelStride
-                val vColOffset = (x shr 1) * vPixelStride
-                val uVal = (uBuffer.get(uRowStart + uvColOffset).toInt() and 0xFF) - 128
-                val vVal = (vBuffer.get(vRowStart + vColOffset).toInt() and 0xFF) - 128
+        val halfWidth = width / 2
+        val halfHeight = height / 2
+        var nv21Offset = width * height
+
+        for (row in 0 until halfHeight) {
+            val vRowStart = row * vRowStride
+            val uRowStart = row * uRowStride
+            for (col in 0 until halfWidth) {
+                outNv21[nv21Offset++] = vBuffer.get(vRowStart + col * vPixelStride)
+                outNv21[nv21Offset++] = uBuffer.get(uRowStart + col * uPixelStride)
+            }
+        }
+    }
+
+    private fun nv21ToRgbBitmap(nv21: ByteArray, width: Int, height: Int, scaleFactor: Int = 2): Bitmap {
+        val outW = width / scaleFactor
+        val outH = height / scaleFactor
+        if (gestureBitmap == null || gestureBitmap?.width != outW || gestureBitmap?.height != outH) {
+            gestureBitmap = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+            gesturePixels = IntArray(outW * outH)
+        }
+        val pixels = gesturePixels!!
+        val bitmap = gestureBitmap!!
+
+        val chromaOffset = width * height
+        var outIdx = 0
+        for (y in 0 until outH) {
+            val srcY = y * scaleFactor
+            val yRowStart = srcY * width
+            val uvRowStart = chromaOffset + (srcY shr 1) * width
+            for (x in 0 until outW) {
+                val srcX = x * scaleFactor
+                val yVal = (nv21[yRowStart + srcX].toInt() and 0xFF) - 16
+                val uvColOffset = (srcX and 1.inv())
+                val vVal = (nv21[uvRowStart + uvColOffset].toInt() and 0xFF) - 128
+                val uVal = (nv21[uvRowStart + uvColOffset + 1].toInt() and 0xFF) - 128
 
                 val y298 = 298 * (if (yVal < 0) 0 else yVal)
                 val r = ((y298 + 409 * vVal + 128) shr 8).coerceIn(0, 255)
                 val g = ((y298 - 100 * uVal - 208 * vVal + 128) shr 8).coerceIn(0, 255)
                 val b = ((y298 + 516 * uVal + 128) shr 8).coerceIn(0, 255)
 
-                outPixels[outIndex++] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                pixels[outIdx++] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
             }
         }
+        bitmap.setPixels(pixels, 0, outW, 0, 0, outW, outH)
+        return bitmap
     }
 
     private fun getCameraId(facingBack: Boolean): String {

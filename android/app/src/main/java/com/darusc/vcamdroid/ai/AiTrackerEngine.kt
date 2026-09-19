@@ -12,6 +12,7 @@ import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -136,12 +137,57 @@ class AiTrackerEngine(
         onCropRegionChanged(rect)
     }
 
+    var lastMlPerfSummary: String = "N/A"
+        private set
+
     fun isReadyForInference(now: Long): Boolean {
         return isTrackingEnabled && !isFaceDetectorBusy && (now - lastInferenceTimeMs >= FACE_INFERENCE_INTERVAL_MS)
     }
 
     /**
-     * Process already-converted in-memory bitmap - zero hardware camera buffer lock time!
+     * Process NV21 byte buffer directly - zero CPU RGB conversion and zero hardware buffer lock time!
+     */
+    fun processNv21(nv21: ByteArray, width: Int, height: Int, rotationDegrees: Int) {
+        if (!isTrackingEnabled || isFaceDetectorBusy) return
+
+        val now = SystemClock.uptimeMillis()
+        lastInferenceTimeMs = now
+        isFaceDetectorBusy = true
+        val inferenceStartNs = SystemClock.elapsedRealtimeNanos()
+
+        try {
+            val inputImage = InputImage.fromByteArray(
+                nv21,
+                width,
+                height,
+                rotationDegrees,
+                InputImage.IMAGE_FORMAT_NV21
+            )
+            val imgW = inputImage.width.toFloat()
+            val imgH = inputImage.height.toFloat()
+
+            faceDetector?.process(inputImage)
+                ?.addOnSuccessListener { faces ->
+                    val inferenceDurationMs = (SystemClock.elapsedRealtimeNanos() - inferenceStartNs) / 1_000_000f
+                    val cropStartNs = SystemClock.elapsedRealtimeNanos()
+                    handleFaceResults(faces, imgW, imgH, rotationDegrees)
+                    val cropDurationMs = (SystemClock.elapsedRealtimeNanos() - cropStartNs) / 1_000_000f
+                    lastMlPerfSummary = "ML: %.1fms | Crop: %.2fms".format(Locale.US, inferenceDurationMs, cropDurationMs)
+                }
+                ?.addOnFailureListener { e ->
+                    Logger.log("AI_TRACKER", "Face detection error: ${e.message}")
+                }
+                ?.addOnCompleteListener {
+                    isFaceDetectorBusy = false
+                }
+        } catch (e: Exception) {
+            isFaceDetectorBusy = false
+            Logger.log("AI_TRACKER", "processNv21 error: ${e.message}")
+        }
+    }
+
+    /**
+     * Process already-converted in-memory bitmap (optional fallback)
      */
     fun processBitmap(bitmap: Bitmap, rotationDegrees: Int) {
         if (!isTrackingEnabled || isFaceDetectorBusy) return
@@ -149,6 +195,7 @@ class AiTrackerEngine(
         val now = SystemClock.uptimeMillis()
         lastInferenceTimeMs = now
         isFaceDetectorBusy = true
+        val inferenceStartNs = SystemClock.elapsedRealtimeNanos()
 
         try {
             val inputImage = InputImage.fromBitmap(bitmap, rotationDegrees)
@@ -157,7 +204,11 @@ class AiTrackerEngine(
 
             faceDetector?.process(inputImage)
                 ?.addOnSuccessListener { faces ->
+                    val inferenceDurationMs = (SystemClock.elapsedRealtimeNanos() - inferenceStartNs) / 1_000_000f
+                    val cropStartNs = SystemClock.elapsedRealtimeNanos()
                     handleFaceResults(faces, imgW, imgH, rotationDegrees)
+                    val cropDurationMs = (SystemClock.elapsedRealtimeNanos() - cropStartNs) / 1_000_000f
+                    lastMlPerfSummary = "ML: %.1fms | Crop: %.2fms".format(Locale.US, inferenceDurationMs, cropDurationMs)
                 }
                 ?.addOnFailureListener { e ->
                     Logger.log("AI_TRACKER", "Face detection error: ${e.message}")
@@ -168,49 +219,6 @@ class AiTrackerEngine(
         } catch (e: Exception) {
             isFaceDetectorBusy = false
             Logger.log("AI_TRACKER", "processBitmap error: ${e.message}")
-        }
-    }
-
-    /**
-     * Called on each incoming camera analysis frame
-     */
-    fun processImage(image: Image, rotationDegrees: Int) {
-        if (!isTrackingEnabled || isFaceDetectorBusy) {
-            image.close()
-            return
-        }
-
-        val now = SystemClock.uptimeMillis()
-        if (now - lastInferenceTimeMs < FACE_INFERENCE_INTERVAL_MS) {
-            image.close()
-            return
-        }
-        lastInferenceTimeMs = now
-        isFaceDetectorBusy = true
-
-        try {
-            val inputImage = InputImage.fromMediaImage(image, rotationDegrees)
-            val imgW = inputImage.width.toFloat()
-            val imgH = inputImage.height.toFloat()
-
-            faceDetector?.process(inputImage)
-                ?.addOnSuccessListener { faces ->
-                    handleFaceResults(faces, imgW, imgH, rotationDegrees)
-                }
-                ?.addOnFailureListener { e ->
-                    Logger.log("AI_TRACKER", "Face detection error: ${e.message}")
-                }
-                ?.addOnCompleteListener {
-                    isFaceDetectorBusy = false
-                    try {
-                        image.close()
-                    } catch (_: Exception) { }
-                }
-        } catch (e: Exception) {
-            isFaceDetectorBusy = false
-            try {
-                image.close()
-            } catch (_: Exception) { }
         }
     }
 

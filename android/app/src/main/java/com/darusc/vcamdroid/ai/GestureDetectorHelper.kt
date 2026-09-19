@@ -144,51 +144,6 @@ class GestureDetectorHelper(
         }
     }
 
-    private fun fastYuv420ToRgb(image: Image, outPixels: IntArray) {
-        val width = image.width
-        val height = image.height
-        val planes = image.planes
-        val yPlane = planes[0]
-        val uPlane = planes[1]
-        val vPlane = planes[2]
-
-        val yBuffer = yPlane.buffer
-        val uBuffer = uPlane.buffer
-        val vBuffer = vPlane.buffer
-
-        yBuffer.rewind()
-        uBuffer.rewind()
-        vBuffer.rewind()
-
-        val yRowStride = yPlane.rowStride
-        val yPixelStride = yPlane.pixelStride
-        val uRowStride = uPlane.rowStride
-        val uPixelStride = uPlane.pixelStride
-        val vRowStride = vPlane.rowStride
-        val vPixelStride = vPlane.pixelStride
-
-        var outIndex = 0
-        for (y in 0 until height) {
-            val yRowStart = y * yRowStride
-            val uRowStart = (y shr 1) * uRowStride
-            val vRowStart = (y shr 1) * vRowStride
-            for (x in 0 until width) {
-                val yVal = (yBuffer.get(yRowStart + x * yPixelStride).toInt() and 0xFF) - 16
-                val uvColOffset = (x shr 1) * uPixelStride
-                val vColOffset = (x shr 1) * vPixelStride
-                val uVal = (uBuffer.get(uRowStart + uvColOffset).toInt() and 0xFF) - 128
-                val vVal = (vBuffer.get(vRowStart + vColOffset).toInt() and 0xFF) - 128
-
-                val y298 = 298 * (if (yVal < 0) 0 else yVal)
-                val r = ((y298 + 409 * vVal + 128) shr 8).coerceIn(0, 255)
-                val g = ((y298 - 100 * uVal - 208 * vVal + 128) shr 8).coerceIn(0, 255)
-                val b = ((y298 + 516 * uVal + 128) shr 8).coerceIn(0, 255)
-
-                outPixels[outIndex++] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
-            }
-        }
-    }
-
     /**
      * Process downscaled thumbnail bitmap (e.g. 256x256 or 320x240) asynchronously
      */
