@@ -379,6 +379,15 @@
             android:layout_marginBottom="6dp" />
 
         <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchRotatePreview"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Rotate Phone Preview 180° (Flip)"
+            android:textColor="#FFFFFF"
+            android:checked="false"
+            android:layout_marginBottom="6dp" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
             android:id="@+id/switchTally"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

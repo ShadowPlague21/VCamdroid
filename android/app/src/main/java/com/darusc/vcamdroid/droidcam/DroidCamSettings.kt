@@ -32,12 +32,18 @@ class DroidCamSettings(context: Context) {
         const val KEY_AI_FRAMING_MODE = "ai_framing_mode" // "16:9" or "9:16"
         const val KEY_GESTURES_ENABLED = "ai_gestures_enabled"
 
+        const val KEY_ROTATE_PREVIEW_180 = "rotate_preview_180"
+
         // Last saved camera parameters
         const val KEY_LAST_ZOOM = "last_zoom_factor"
         const val KEY_LAST_EV = "last_exposure_compensation"
         const val KEY_LAST_AWB = "last_awb_mode"
         const val KEY_LAST_AF = "last_af_mode"
     }
+
+    var isRotatePreview180: Boolean
+        get() = prefs.getBoolean(KEY_ROTATE_PREVIEW_180, false)
+        set(value) = prefs.edit().putBoolean(KEY_ROTATE_PREVIEW_180, value).apply()
 
     // AI Tracking Options
     var isAiTrackingEnabled: Boolean

@@ -174,8 +174,15 @@ class DroidCamServer(
             val resRegex = Regex("""(\d{3,4})x(\d{3,4})""", RegexOption.IGNORE_CASE)
             val match = resRegex.find(requestLine)
             if (match != null) {
-                width = match.groupValues[1].toIntOrNull() ?: width
-                height = match.groupValues[2].toIntOrNull() ?: height
+                val parsedW = match.groupValues[1].toIntOrNull() ?: width
+                val parsedH = match.groupValues[2].toIntOrNull() ?: height
+                if (settings.aiFramingMode == "9:16") {
+                    width = minOf(parsedW, parsedH)
+                    height = maxOf(parsedW, parsedH)
+                } else {
+                    width = maxOf(parsedW, parsedH)
+                    height = minOf(parsedW, parsedH)
+                }
             } else {
                 when {
                     requestLine.contains("4k", ignoreCase = true) || requestLine.contains("2160p", ignoreCase = true) -> {
@@ -193,6 +200,15 @@ class DroidCamServer(
                     requestLine.contains("480p", ignoreCase = true) -> {
                         width = 640; height = 480
                     }
+                }
+                if (settings.aiFramingMode == "9:16") {
+                    val w = width
+                    width = minOf(w, height)
+                    height = maxOf(w, height)
+                } else {
+                    val w = width
+                    width = maxOf(w, height)
+                    height = minOf(w, height)
                 }
             }
         } catch (e: Exception) {

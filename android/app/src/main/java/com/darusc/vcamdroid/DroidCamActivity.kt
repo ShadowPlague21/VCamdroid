@@ -66,6 +66,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         streamer = DroidCamStreamer(this, droidCamServer)
 
         binding.cameraPreview.surfaceTextureListener = this
+        adjustPreviewAspectRatio(settings.targetResolutionWidth, settings.targetResolutionHeight)
 
         setupStudioHUD()
         setupOpticalControls()
@@ -162,8 +163,30 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
         binding.btnFramingMode.text = settings.aiFramingMode
         binding.btnFramingMode.setOnClickListener {
-            val nextMode = streamer.toggleFramingMode()
-            updateFramingModeUI(nextMode)
+            val isNow916 = settings.aiFramingMode != "9:16"
+            val newModeStr = if (isNow916) "9:16" else "16:9"
+            settings.aiFramingMode = newModeStr
+            val modeEnum = if (isNow916) AiTrackerEngine.FramingMode.PORTRAIT_9_16 else AiTrackerEngine.FramingMode.LANDSCAPE_16_9
+            streamer.setFramingMode(modeEnum)
+            updateFramingModeUI(modeEnum)
+
+            val targetW = if (isNow916) 1080 else 1920
+            val targetH = if (isNow916) 1920 else 1080
+            settings.targetResolutionWidth = targetW
+            settings.targetResolutionHeight = targetH
+
+            adjustPreviewAspectRatio(targetW, targetH)
+            binding.cameraPreview.surfaceTexture?.setDefaultBufferSize(targetW, targetH)
+
+            if (droidCamServer.isStreaming) {
+                val currentFmt = streamer.currentFormat
+                streamer.stopStream()
+                streamer.startStream(currentFmt, targetW, targetH, settings.targetFps, isBackCamera)
+                val mode = if (isUsbConnection) "USB" else "Wi-Fi"
+                binding.txtSubStatus.text = "OBS Active ($mode): ${targetW}x${targetH} $currentFmt @ ${settings.targetFps}fps"
+            } else {
+                updateConnectionPill()
+            }
         }
 
         // Callbacks for Gestures and Face Tracking
@@ -769,6 +792,12 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             }
         }
 
+        sheetBinding.switchRotatePreview.isChecked = settings.isRotatePreview180
+        sheetBinding.switchRotatePreview.setOnCheckedChangeListener { _, isChecked ->
+            settings.isRotatePreview180 = isChecked
+            configureTransform(binding.cameraPreview.width, binding.cameraPreview.height)
+        }
+
         sheetBinding.switchTally.isChecked = settings.showTallyIndicator
         sheetBinding.switchTally.setOnCheckedChangeListener { _, isChecked ->
             settings.showTallyIndicator = isChecked
@@ -868,13 +897,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
     private fun adjustPreviewAspectRatio(streamWidth: Int, streamHeight: Int) {
         if (streamWidth <= 0 || streamHeight <= 0) return
-        val rotation = windowManager.defaultDisplay.rotation
-        val isPortrait = rotation == Surface.ROTATION_0 || rotation == Surface.ROTATION_180
-
-        val aspectW = if (isPortrait) minOf(streamWidth, streamHeight) else maxOf(streamWidth, streamHeight)
-        val aspectH = if (isPortrait) maxOf(streamWidth, streamHeight) else minOf(streamWidth, streamHeight)
-
-        binding.cameraPreview.setAspectRatio(aspectW, aspectH)
+        binding.cameraPreview.setAspectRatio(streamWidth, streamHeight)
         binding.cameraPreview.post {
             configureTransform(binding.cameraPreview.width, binding.cameraPreview.height)
         }
@@ -883,30 +906,12 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     private fun configureTransform(viewWidth: Int, viewHeight: Int) {
         if (viewWidth <= 0 || viewHeight <= 0) return
 
-        val rotation = windowManager.defaultDisplay.rotation
         val matrix = Matrix()
-        val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
+        val centerX = viewWidth / 2f
+        val centerY = viewHeight / 2f
 
-        val streamW = settings.targetResolutionWidth.toFloat()
-        val streamH = settings.targetResolutionHeight.toFloat()
-        val bufferRect = RectF(0f, 0f, streamH, streamW)
-
-        val centerX = viewRect.centerX()
-        val centerY = viewRect.centerY()
-
-        if (Surface.ROTATION_0 == rotation) {
+        if (settings.isRotatePreview180) {
             matrix.postRotate(180f, centerX, centerY)
-        } else if (Surface.ROTATION_90 == rotation || Surface.ROTATION_270 == rotation) {
-            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
-            matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
-            val scale = maxOf(
-                viewHeight.toFloat() / streamH,
-                viewWidth.toFloat() / streamW
-            )
-            matrix.postScale(scale, scale, centerX, centerY)
-            matrix.postRotate((90 * (rotation - 2) + 180).toFloat() % 360f, centerX, centerY)
-        } else if (Surface.ROTATION_180 == rotation) {
-            // No rotation needed when phone is physically upside down
         }
 
         binding.cameraPreview.setTransform(matrix)
