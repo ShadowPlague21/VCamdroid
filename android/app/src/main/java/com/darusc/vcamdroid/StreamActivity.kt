@@ -92,6 +92,7 @@ class StreamActivity : AppCompatActivity(), SurfaceHolder.Callback, ConnectionMa
     }
 
     private fun onBytesReceived(buffer: ByteArray, bytes: Int) {
+        if (bytes <= 0) return
         val type = buffer[0]
 
         when (type) {

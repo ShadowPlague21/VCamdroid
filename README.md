@@ -165,7 +165,7 @@ The in-app studio interface provides a professional heads-up display (HUD):
 | **Pinch Zoom** | Hands-free gesture-driven camera zoom | 1.0x - 4.0x | Pinch gesture |
 | **Torch** | Camera LED assist light | On / Off | One-tap |
 | **Settings** | Studio Control Center (Bitrate, FPS, Anti-flicker, 180° flip) | Full studio suite | One-tap (Wrench icon) |
-| **Audio** | AAC microphone audio stream | On / Off | One-tap |
+| **Audio** | AAC microphone audio stream (In Development) | Planned | Settings |
 
 ---
 
@@ -173,7 +173,7 @@ The in-app studio interface provides a professional heads-up display (HUD):
 
 ### Prerequisites
 * **PC:** Windows 10 or 11 (64-bit).
-* **Phone:** Android 7.0 (Nougat) or higher (Android 10+ recommended for HEVC 60 FPS).
+* **Phone:** Android 9.0 (Pie / API 28) or higher (Android 10+ recommended for HEVC 60 FPS).
 
 ### Step 1: Install on Windows
 1. For OBS Studio: Download and run the 1-click installer from [**VCamdroid OBS Plugin**](https://github.com/ShadowPlague21/VCamdroid-obs-plugin/releases/tag/latest).

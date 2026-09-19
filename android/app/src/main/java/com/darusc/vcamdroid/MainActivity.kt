@@ -155,11 +155,13 @@ class MainActivity : AppCompatActivity(), ConnectionManager.ConnectionStateCallb
     }
 
     override fun onConnectionSuccessful(connectionMode: ConnectionManager.Mode) {
-        isConnecting = false
-        qrscanner.stop()
-        camera?.stop()
-        Logger.log("MAIN", "Connection successful $connectionMode")
-        startActivity(Intent(this, StreamActivity::class.java))
+        runOnUiThread {
+            isConnecting = false
+            qrscanner.stop()
+            camera?.stop()
+            Logger.log("MAIN", "Connection successful $connectionMode")
+            startActivity(Intent(this, StreamActivity::class.java))
+        }
     }
 
     override fun onConnectionFailed(connectionMode: ConnectionManager.Mode) {

@@ -7,6 +7,7 @@ import com.darusc.vcamdroid.util.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ConnectionManager private constructor() : Connection.Listener {
 
@@ -72,10 +73,14 @@ class ConnectionManager private constructor() : Connection.Listener {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 tcpConn = TCPConnection(ipAddress, port, false, this@ConnectionManager)
-                connectionStateCallback?.onConnectionSuccessful(Mode.WIFI)
+                withContext(Dispatchers.Main) {
+                    connectionStateCallback?.onConnectionSuccessful(Mode.WIFI)
+                }
             } catch (e: Connection.ConnectionFailedException) {
                 Logger.log("CONNECTION MANAGER", "" + e.message)
-                connectionStateCallback?.onConnectionFailed(Mode.WIFI)
+                withContext(Dispatchers.Main) {
+                    connectionStateCallback?.onConnectionFailed(Mode.WIFI)
+                }
             }
         }
     }
@@ -87,10 +92,14 @@ class ConnectionManager private constructor() : Connection.Listener {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 tcpConn = TCPConnection("127.0.0.1", port, true, this@ConnectionManager)
-                connectionStateCallback?.onConnectionSuccessful(Mode.USB)
+                withContext(Dispatchers.Main) {
+                    connectionStateCallback?.onConnectionSuccessful(Mode.USB)
+                }
             } catch (e: Connection.ConnectionFailedException) {
                 Logger.log("CONNECTION MANAGER", "" + e.message)
-                connectionStateCallback?.onConnectionFailed(Mode.USB)
+                withContext(Dispatchers.Main) {
+                    connectionStateCallback?.onConnectionFailed(Mode.USB)
+                }
             }
         }
     }

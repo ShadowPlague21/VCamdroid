@@ -32,7 +32,7 @@ object ResolutionFpsMatrix {
         ResolutionInfo(640, 480, "480p (SD)")
     )
 
-    private val maxFpsCache = mutableMapOf<String, Int>()
+    private val maxFpsCache = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     fun getMaxFpsForResolution(
         context: Context,
@@ -40,15 +40,15 @@ object ResolutionFpsMatrix {
         height: Int,
         isBack: Boolean
     ): Int {
-        val w = maxOf(width, height)
-        val h = minOf(width, height)
-        val cacheKey = "${if (isBack) "back" else "front"}_${w}x${h}"
-        maxFpsCache[cacheKey]?.let { return it }
-
         val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
             ?: return 30
 
         val cameraId = getCameraId(cameraManager, isBack)
+        val w = maxOf(width, height)
+        val h = minOf(width, height)
+        val cacheKey = "${cameraId}_${w}x${h}"
+        maxFpsCache[cacheKey]?.let { return it }
+
         val chars = try {
             cameraManager.getCameraCharacteristics(cameraId)
         } catch (_: Exception) { return 30 }

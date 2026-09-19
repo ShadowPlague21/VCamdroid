@@ -60,13 +60,14 @@ class TCPConnection(
         val buf = ByteArray(512)
         while (running.get()) {
             try {
-                val bytes = inputStream?.read(buf)
-                // When connected over ADB stream end of file might be reached
-                if(isOverAdb && bytes == -1) {
+                val bytes = inputStream?.read(buf) ?: -1
+                if (bytes == -1) {
                     listener.onDisconnected()
                     break
                 }
-                listener.onBytesReceived(buf, bytes ?: 0)
+                if (bytes > 0) {
+                    listener.onBytesReceived(buf, bytes)
+                }
             } catch (e: Exception) {
                 Logger.log("TCPConnection", "Error while reading. Closing socket. ${e.message}")
                 listener.onDisconnected()

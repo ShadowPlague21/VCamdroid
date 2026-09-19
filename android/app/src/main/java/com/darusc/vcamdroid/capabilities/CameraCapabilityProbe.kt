@@ -282,8 +282,15 @@ object CameraCapabilityProbe {
                 val h = minOf(size.width, size.height)
                 val key = "${w}x${h}_HS"
                 if (seen.contains(key)) return@forEach
-                // For HS, max FPS is from fpsRanges
-                val maxFps = hsFpsRanges?.maxOfOrNull { it.upper } ?: 120
+                // Query size-specific high-speed FPS ranges rather than sensor-wide max
+                val sizeFpsRanges = try {
+                    map.getHighSpeedVideoFpsRangesFor(size)
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
+                val maxFps = sizeFpsRanges?.maxOfOrNull { it.upper }
+                    ?: hsFpsRanges?.maxOfOrNull { it.upper }
+                    ?: 120
                 highSpeedProfiles.add(
                     ResolutionProfile(
                         size = size,

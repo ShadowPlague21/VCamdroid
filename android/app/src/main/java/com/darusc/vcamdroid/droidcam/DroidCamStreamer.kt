@@ -270,15 +270,16 @@ class DroidCamStreamer(
         currentHeight = validH
         currentFormat = format
         isBackCamera = facingBack
+        settings.targetFps = fps
         aiTrackerEngine?.setStreamSize(validW, validH)
 
         startBackgroundThread()
 
         try {
-            setupEncoder(mimeType, validW, validH, settings.targetFps)
+            setupEncoder(mimeType, validW, validH, fps)
             openCamera()
             isStreaming = true
-            Logger.log("DROIDCAM_STREAMER", "Streaming started: $validW x $validH @ ${settings.targetFps} fps ($format)")
+            Logger.log("DROIDCAM_STREAMER", "Streaming started: $validW x $validH @ $fps fps ($format)")
         } catch (e: Exception) {
             Logger.log("DROIDCAM_STREAMER", "Failed to start stream: ${e.message}")
             stopStream()
@@ -732,9 +733,13 @@ class DroidCamStreamer(
                 index: Int,
                 info: MediaCodec.BufferInfo
             ) {
-                if (!isStreaming) return
                 try {
-                    val outputBuffer = codec.getOutputBuffer(index) ?: return
+                    if (!isStreaming) return
+                    val outputBuffer = try {
+                        codec.getOutputBuffer(index)
+                    } catch (_: IllegalStateException) {
+                        null
+                    } ?: return
 
                     if ((info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
                         val configBytes = ByteArray(info.size)
@@ -745,16 +750,22 @@ class DroidCamStreamer(
                         val ptsMs = info.presentationTimeUs / 1000L
                         droidCamServer.sendVideoPacket(ptsMs, outputBuffer, info.offset, info.size)
                     }
-
-                    codec.releaseOutputBuffer(index, false)
-                } catch (_: IllegalStateException) {
                 } catch (e: Exception) {
                     Logger.log("DROIDCAM_STREAMER", "onOutputBufferAvailable error: ${e.message}")
+                } finally {
+                    try {
+                        codec.releaseOutputBuffer(index, false)
+                    } catch (_: IllegalStateException) {
+                        // Codec may have been stopped/reset during stream teardown or reconfiguration
+                    }
                 }
             }
 
             override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
                 Logger.log("DROIDCAM_STREAMER", "MediaCodec error: ${e.message}")
+                if (isStreaming) {
+                    stopStream()
+                }
             }
 
             override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {

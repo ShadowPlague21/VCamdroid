@@ -12,6 +12,33 @@ namespace Serializer
 		return (b0 << 8) | b1;
 	}
 
+	static bool HasBytes(size_t offset, size_t needed, size_t total)
+	{
+		return (offset + needed <= total);
+	}
+
+	static uint16_t SafeReadInt16(const uint8_t* bytes, size_t offset, size_t total)
+	{
+		if (!HasBytes(offset, 2, total)) return 0;
+		uint8_t b0 = static_cast<uint8_t>(bytes[offset]);
+		uint8_t b1 = static_cast<uint8_t>(bytes[offset + 1]);
+		return (b0 << 8) | b1;
+	}
+
+	static std::string SafeReadString(const uint8_t* bytes, size_t& offset, size_t total)
+	{
+		if (!HasBytes(offset, 2, total)) return "";
+		uint16_t strLen = SafeReadInt16(bytes, offset, total);
+		offset += 2;
+		if (!HasBytes(offset, strLen, total)) {
+			offset = total;
+			return "";
+		}
+		std::string result((const char*)&bytes[offset], strLen);
+		offset += strLen;
+		return result;
+	}
+
 	static void WriteInt16(std::vector<uint8_t>& buffer, uint16_t value)
 	{
 		buffer.push_back((value >> 8) & 0xFF);
@@ -39,15 +66,18 @@ namespace Serializer
 
 	DeviceDescriptor DeserializeDeviceDescriptor(const uint8_t* bytes, size_t size)
 	{
-		int offset = 0;
+		if (!bytes || size < 4)
+		{
+			return DeviceDescriptor("", "", "udp", {}, {}, {});
+		}
+
+		size_t offset = 0;
 
 		// Name is the first thing
-		// Each string is preceded by 2 bytes representing its size
-		auto name = std::string((const char*)& bytes[offset + 2], ReadInt16(bytes));
+		auto name = SafeReadString(bytes, offset, size);
 
 		// The RTSP url follows after the name
-		offset += 2 + name.size();
-		auto url = std::string((const char*)& bytes[offset + 2], ReadInt16(bytes + offset));
+		auto url = SafeReadString(bytes, offset, size);
 
 		// Default protocol is udp. If it is a usb connection (via adb) switch to tcp
 		std::string protocol = "udp";
@@ -56,56 +86,45 @@ namespace Serializer
 			protocol = "tcp";
 		}
 
-		offset += 2 + url.size();
 		// Represents how many resolutions are provided
-		uint16_t frontResolutionCount = ReadInt16(bytes + offset);
+		uint16_t frontResolutionCount = SafeReadInt16(bytes, offset, size);
 		offset += 2;
 
 		std::vector<DeviceDescriptor::Resolution> frontResolutions;
-		for (int i = 0; i < frontResolutionCount; i++)
+		for (int i = 0; i < frontResolutionCount && HasBytes(offset, 4, size); i++)
 		{
-			// Each resolutions is given in pairs, first 2 bytes represents 
-			// the width, the next 2 bytes represents the height
-			auto w = ReadInt16(bytes + offset);
-			auto h = ReadInt16(bytes + offset + 2);
-
+			auto w = SafeReadInt16(bytes, offset, size);
+			auto h = SafeReadInt16(bytes, offset + 2, size);
 			frontResolutions.push_back(DeviceDescriptor::Resolution(w, h));
-
 			offset += 4;
 		}
 
-		uint16_t backResolutionCount = ReadInt16(bytes + offset);
+		uint16_t backResolutionCount = SafeReadInt16(bytes, offset, size);
 		offset += 2;
 
 		std::vector<DeviceDescriptor::Resolution> backResolutions;
-		for (int i = 0; i < backResolutionCount; i++)
+		for (int i = 0; i < backResolutionCount && HasBytes(offset, 4, size); i++)
 		{
-			// Each resolutions is given in pairs, first 2 bytes represents 
-			// the width, the next 2 bytes represents the height
-			auto w = ReadInt16(bytes + offset);
-			auto h = ReadInt16(bytes + offset + 2);
-
+			auto w = SafeReadInt16(bytes, offset, size);
+			auto h = SafeReadInt16(bytes, offset + 2, size);
 			backResolutions.push_back(DeviceDescriptor::Resolution(w, h));
-
 			offset += 4;
 		}
 
 		// How many filters
-		uint16_t filterCount = ReadInt16(bytes + offset);
+		uint16_t filterCount = SafeReadInt16(bytes, offset, size);
 		offset += 2;
 
 		Video::Filter::Registry filters;
-		for (int i = 0; i < filterCount; i++)
+		for (int i = 0; i < filterCount && offset < size; i++)
 		{
-			// First 2 bytes represent the length of the filter name,
-			// followed by the actual string
-			auto name = std::string((const char*)&bytes[offset + 2], ReadInt16(bytes + offset));
-			offset += 2 + name.size();
-			// And 1 more byte for the category
-			auto cat = static_cast<Video::Filter::Category>(bytes[offset]);
-			offset++;
-
-			filters[cat].push_back(name);
+			auto filterName = SafeReadString(bytes, offset, size);
+			if (offset < size)
+			{
+				auto cat = static_cast<Video::Filter::Category>(bytes[offset]);
+				offset++;
+				filters[cat].push_back(filterName);
+			}
 		}
 
 		return DeviceDescriptor(name, url, protocol, frontResolutions, backResolutions, filters);
@@ -148,15 +167,13 @@ namespace Serializer
 
 	Connection::ErrorReport DeserializeErrorReport(const uint8_t* bytes, size_t size)
 	{
-		int offset = 0;
-
 		Connection::ErrorReport report;
+		if (!bytes || size < 3) return report;
 
+		size_t offset = 0;
 		report.severity = bytes[offset++];
-		report.error = std::string((const char*)&bytes[offset + 2], ReadInt16(bytes + offset));
-
-		offset += 2 + report.error.size();
-		report.description = std::string((const char*)&bytes[offset + 2], ReadInt16(bytes + offset));
+		report.error = SafeReadString(bytes, offset, size);
+		report.description = SafeReadString(bytes, offset, size);
 		
 		return report;
 	}

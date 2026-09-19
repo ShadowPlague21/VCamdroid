@@ -10,7 +10,7 @@ namespace adb
 	/*
 	* Get the local directory of the program
 	*/
-	std::string dir()
+	inline std::string dir()
 	{
 		char buffer[MAX_PATH];
 		GetModuleFileNameA(NULL, buffer, MAX_PATH);
@@ -19,24 +19,23 @@ namespace adb
 		return path.substr(0, path.find_last_of("\\/"));
 	}
 
-	
 	/*
 	* Reverse the given tcp port.
 	* adb reverse tcp:<port> tcp:<port>
 	*/
-	bool reverse(int port)
+	inline bool reverse(int port)
 	{
 		std::string path = dir();
-		std::string command = path + "\\adb\\adb.exe " + "reverse tcp:" + std::to_string(port) + " tcp:" + std::to_string(port);
+		std::string command = "\"" + path + "\\adb\\adb.exe\" reverse tcp:" + std::to_string(port) + " tcp:" + std::to_string(port);
 
 		if (system(command.c_str()) == 0)
 		{
-			logger << "[ADB:" << port << "] Started " << std::endl;
+			logger << "[ADB:" << port << "] Started reverse " << std::endl;
 			return true;
 		}
 		else
 		{
-			logger << "[ADB:" << port << "] Failed to start " << std::endl;
+			logger << "[ADB:" << port << "] Failed to start reverse " << std::endl;
 			return false;
 		}
 	}
@@ -45,47 +44,37 @@ namespace adb
 	* Forwards a given tcp port
 	* adb forward tcp:<port> tcp:<port>
 	*/
-	bool forward(int port)
+	inline bool forward(int port)
 	{
 		std::string path = dir();
-		std::string command = path + "\\adb\\adb.exe " + "forward tcp:" + std::to_string(port) + " tcp:" + std::to_string(port);
+		std::string command = "\"" + path + "\\adb\\adb.exe\" forward tcp:" + std::to_string(port) + " tcp:" + std::to_string(port);
 
 		if (system(command.c_str()) == 0)
 		{
-			logger << "[ADB:" << port << "] Started " << std::endl;
+			logger << "[ADB:" << port << "] Started forward " << std::endl;
 			return true;
 		}
 		else
 		{
-			logger << "[ADB:" << port << "] Failed to start " << std::endl;
+			logger << "[ADB:" << port << "] Failed to start forward " << std::endl;
 			return false;
 		}
 	}
 
 	/*
-	* Removes the reversed given tcp port.
-	* adb reverse --remove tcp:<port>
+	* Removes the reversed/forwarded tcp port mapping.
+	* Selectively removes port forwarding without killing the global system ADB server.
 	*/
-	bool kill(int port)
+	inline bool kill(int port)
 	{
 		std::string path = dir();
+		std::string reverseCmd = "\"" + path + "\\adb\\adb.exe\" reverse --remove tcp:" + std::to_string(port);
+		system(reverseCmd.c_str());
 
-		// Sometimes without kill-server adb port remains used and the app
-		// won't start next time
-		// Sometimes with kill-server it takes too long for the app to stop
-		// becoming not responding
-		// std::string command = path + "\\adb\\adb.exe " + "reverse --remove tcp:" + std::to_string(port);
-		std::string command = path + "\\adb\\adb.exe " + "reverse --remove tcp:" + std::to_string(port) + " & " + path + "\\adb\\adb.exe kill-server";
+		std::string forwardCmd = "\"" + path + "\\adb\\adb.exe\" forward --remove tcp:" + std::to_string(port);
+		system(forwardCmd.c_str());
 
-		if (system(command.c_str()) == 0)
-		{
-			logger << "[ADB:" << port << "] Stopped " << std::endl;
-			return true;
-		}
-		else
-		{
-			logger << "[ADB:" << port << "] Failed to stop " << std::endl;
-			return false;
-		}
+		logger << "[ADB:" << port << "] Port mapping removed " << std::endl;
+		return true;
 	}
 }
