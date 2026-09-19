@@ -131,26 +131,10 @@ void Server::TCPDoAccept()
 			logger << "[SERVER] Device connected: " << socket.remote_endpoint() << std::endl;
 
 			auto sockPtr = std::make_shared<tcp::socket>(std::move(socket));
-			auto bufPtr = std::make_shared<std::array<uint8_t, 1024>>();
+			auto bufferPtr = std::make_shared<std::vector<uint8_t>>();
+			auto chunkPtr = std::make_shared<std::array<uint8_t, 512>>();
 
-			sockPtr->async_read_some(asio::buffer(*bufPtr), [this, sockPtr, bufPtr](asio::error_code readEc, size_t bytesRead) {
-				if (!readEc && bytesRead > 0)
-				{
-					auto descriptor = Serializer::DeserializeDeviceDescriptor(bufPtr->data(), bytesRead);
-					auto conn = std::make_shared<Connection>(
-						std::move(*sockPtr),
-						descriptor,
-						std::bind(&Server::OnConnectionDisconnected, this, std::placeholders::_1),
-						std::bind(&Server::OnConnectionReportingError, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)
-					);
-					connections.push_back(conn);
-					connectionListener.OnDeviceConnected(descriptor);
-				}
-				else
-				{
-					logger << "[SERVER] Failed to read initial device descriptor: " << readEc.message() << std::endl;
-				}
-			});
+			ReadDeviceDescriptor(sockPtr, bufferPtr, chunkPtr);
 		}
 		else if (ec != asio::error::operation_aborted)
 		{
@@ -159,6 +143,42 @@ void Server::TCPDoAccept()
 
 		if (acceptor.is_open()) {
 			TCPDoAccept();
+		}
+	});
+}
+
+void Server::ReadDeviceDescriptor(
+	std::shared_ptr<tcp::socket> sockPtr,
+	std::shared_ptr<std::vector<uint8_t>> bufferPtr,
+	std::shared_ptr<std::array<uint8_t, 512>> chunkPtr)
+{
+	sockPtr->async_read_some(asio::buffer(*chunkPtr), [this, sockPtr, bufferPtr, chunkPtr](asio::error_code readEc, size_t bytesRead) {
+		if (!readEc && bytesRead > 0)
+		{
+			bufferPtr->insert(bufferPtr->end(), chunkPtr->begin(), chunkPtr->begin() + bytesRead);
+
+			size_t totalDescriptorSize = 0;
+			if (Serializer::IsDeviceDescriptorComplete(bufferPtr->data(), bufferPtr->size(), totalDescriptorSize))
+			{
+				auto descriptor = Serializer::DeserializeDeviceDescriptor(bufferPtr->data(), totalDescriptorSize);
+				auto conn = std::make_shared<Connection>(
+					std::move(*sockPtr),
+					descriptor,
+					std::bind(&Server::OnConnectionDisconnected, this, std::placeholders::_1),
+					std::bind(&Server::OnConnectionReportingError, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)
+				);
+				connections.push_back(conn);
+				connectionListener.OnDeviceConnected(descriptor);
+			}
+			else
+			{
+				// Incomplete descriptor: fragment arrived, keep reading until all fields are complete
+				ReadDeviceDescriptor(sockPtr, bufferPtr, chunkPtr);
+			}
+		}
+		else
+		{
+			logger << "[SERVER] Failed to read initial device descriptor: " << (readEc ? readEc.message() : "EOF") << std::endl;
 		}
 	});
 }

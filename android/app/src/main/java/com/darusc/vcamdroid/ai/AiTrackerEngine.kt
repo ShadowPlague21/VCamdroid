@@ -146,9 +146,19 @@ class AiTrackerEngine(
 
     /**
      * Process NV21 byte buffer directly - zero CPU RGB conversion and zero hardware buffer lock time!
+     * Buffer is held until async ML Kit completes, then returned via onComplete callback.
      */
-    fun processNv21(nv21: ByteArray, width: Int, height: Int, rotationDegrees: Int) {
-        if (!isTrackingEnabled || isFaceDetectorBusy) return
+    fun processNv21(
+        nv21: ByteArray,
+        width: Int,
+        height: Int,
+        rotationDegrees: Int,
+        onComplete: ((ByteArray) -> Unit)? = null
+    ) {
+        if (!isTrackingEnabled || isFaceDetectorBusy) {
+            onComplete?.invoke(nv21)
+            return
+        }
 
         val now = SystemClock.uptimeMillis()
         lastInferenceTimeMs = now
@@ -179,9 +189,11 @@ class AiTrackerEngine(
                 }
                 ?.addOnCompleteListener {
                     isFaceDetectorBusy = false
+                    onComplete?.invoke(nv21)
                 }
         } catch (e: Exception) {
             isFaceDetectorBusy = false
+            onComplete?.invoke(nv21)
             Logger.log("AI_TRACKER", "processNv21 error: ${e.message}")
         }
     }

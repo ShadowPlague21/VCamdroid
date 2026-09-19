@@ -6,6 +6,7 @@
 
 namespace Serializer
 {
+	bool IsDeviceDescriptorComplete(const uint8_t* bytes, size_t available, size_t& outTotalSize);
 	DeviceDescriptor DeserializeDeviceDescriptor(const uint8_t* bytes, size_t size);
 	std::vector<uint8_t> SerializeStreamOptions(const StreamOptions& state);
 	Connection::ErrorReport DeserializeErrorReport(const uint8_t* bytes, size_t size);

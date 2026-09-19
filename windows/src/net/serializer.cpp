@@ -64,6 +64,55 @@ namespace Serializer
 		buffer.insert(buffer.end(), value.begin(), value.end());
 	}
 
+	bool IsDeviceDescriptorComplete(const uint8_t* bytes, size_t available, size_t& outTotalSize)
+	{
+		outTotalSize = 0;
+		if (!bytes || available < 2) return false;
+
+		size_t offset = 0;
+
+		// 1. Name
+		if (offset + 2 > available) return false;
+		uint16_t nameLen = (static_cast<uint16_t>(bytes[offset]) << 8) | bytes[offset + 1];
+		offset += 2 + nameLen;
+		if (offset > available) return false;
+
+		// 2. RTSP URL
+		if (offset + 2 > available) return false;
+		uint16_t urlLen = (static_cast<uint16_t>(bytes[offset]) << 8) | bytes[offset + 1];
+		offset += 2 + urlLen;
+		if (offset > available) return false;
+
+		// 3. Front resolutions
+		if (offset + 2 > available) return false;
+		uint16_t frontCount = (static_cast<uint16_t>(bytes[offset]) << 8) | bytes[offset + 1];
+		offset += 2 + (static_cast<size_t>(frontCount) * 4);
+		if (offset > available) return false;
+
+		// 4. Back resolutions
+		if (offset + 2 > available) return false;
+		uint16_t backCount = (static_cast<uint16_t>(bytes[offset]) << 8) | bytes[offset + 1];
+		offset += 2 + (static_cast<size_t>(backCount) * 4);
+		if (offset > available) return false;
+
+		// 5. Filters
+		if (offset + 2 > available) return false;
+		uint16_t filterCount = (static_cast<uint16_t>(bytes[offset]) << 8) | bytes[offset + 1];
+		offset += 2;
+		if (offset > available) return false;
+
+		for (uint16_t i = 0; i < filterCount; i++)
+		{
+			if (offset + 2 > available) return false;
+			uint16_t filterNameLen = (static_cast<uint16_t>(bytes[offset]) << 8) | bytes[offset + 1];
+			offset += 2 + filterNameLen + 1; // 2 len + name bytes + 1 category
+			if (offset > available) return false;
+		}
+
+		outTotalSize = offset;
+		return true;
+	}
+
 	DeviceDescriptor DeserializeDeviceDescriptor(const uint8_t* bytes, size_t size)
 	{
 		if (!bytes || size < 4)

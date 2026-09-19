@@ -55,6 +55,10 @@ private:
 	std::vector<std::shared_ptr<Connection>> connections;
 
 	void TCPDoAccept();
+	void ReadDeviceDescriptor(
+		std::shared_ptr<tcp::socket> sockPtr,
+		std::shared_ptr<std::vector<uint8_t>> bufferPtr,
+		std::shared_ptr<std::array<uint8_t, 512>> chunkPtr);
 	void OnConnectionDisconnected(std::shared_ptr<Connection> connection);
 	void OnConnectionReportingError(std::shared_ptr<Connection> connection, const uint8_t* bytes, size_t size);
 };

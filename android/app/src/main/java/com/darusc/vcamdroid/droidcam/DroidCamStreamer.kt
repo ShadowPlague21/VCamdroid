@@ -156,8 +156,38 @@ class DroidCamStreamer(
     private var aiImageReader: ImageReader? = null
     private var aiThread: HandlerThread? = null
     private var aiHandler: Handler? = null
-    private var lastGestureProcessTimeMs = 0L
-    private var aiNv21Buffer: ByteArray? = null
+    private class Nv21BufferPool(private val maxCapacity: Int = 3) {
+        private val pool = ArrayDeque<ByteArray>(maxCapacity)
+        private var currentBufferSize = 0
+
+        @Synchronized
+        fun acquire(size: Int): ByteArray {
+            if (currentBufferSize != size) {
+                pool.clear()
+                currentBufferSize = size
+            }
+            return if (pool.isNotEmpty()) {
+                pool.removeFirst()
+            } else {
+                ByteArray(size)
+            }
+        }
+
+        @Synchronized
+        fun release(buffer: ByteArray) {
+            if (buffer.size == currentBufferSize && pool.size < maxCapacity) {
+                pool.addLast(buffer)
+            }
+        }
+
+        @Synchronized
+        fun clear() {
+            pool.clear()
+            currentBufferSize = 0
+        }
+    }
+
+    private val aiBufferPool = Nv21BufferPool(maxCapacity = 3)
     private var gestureBitmap: Bitmap? = null
     private var gesturePixels: IntArray? = null
     private var perfFrameCounter = 0
@@ -354,6 +384,7 @@ class DroidCamStreamer(
             aiImageReader?.close()
         } catch (_: Exception) { }
         aiImageReader = null
+        aiBufferPool.clear()
 
         if (releaseThreads) {
             stopBackgroundThread()
@@ -962,10 +993,7 @@ class DroidCamStreamer(
                     val w = img.width
                     val h = img.height
                     val nv21Size = w * h * 3 / 2
-                    if (aiNv21Buffer == null || aiNv21Buffer?.size != nv21Size) {
-                        aiNv21Buffer = ByteArray(nv21Size)
-                    }
-                    val nv21 = aiNv21Buffer!!
+                    val nv21 = aiBufferPool.acquire(nv21Size)
 
                     val copyStartNs = SystemClock.elapsedRealtimeNanos()
                     yuv420ToNv21(img, nv21)
@@ -983,7 +1011,12 @@ class DroidCamStreamer(
                     }
 
                     if (needFace) {
-                        aiTrackerEngine?.processNv21(nv21, w, h, inferenceRotation)
+                        aiTrackerEngine?.processNv21(nv21, w, h, inferenceRotation) { returnedBuffer ->
+                            aiBufferPool.release(returnedBuffer)
+                        }
+                    } else {
+                        // Not consumed by async face tracker; return immediately to pool
+                        aiBufferPool.release(nv21)
                     }
 
                     perfFrameCounter++
