@@ -181,15 +181,17 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
                     val pW = binding.cameraPreview.width.toFloat()
                     val pH = binding.cameraPreview.height.toFloat()
                     if (pW > 0 && pH > 0) {
+                        val boxW = (bounds.width() * pW).coerceAtLeast(60f)
+                        val boxH = (bounds.height() * pH).coerceAtLeast(60f)
+                        val reticleBaseSize = binding.faceReticle.width.toFloat().takeIf { it > 0 } ?: (resources.displayMetrics.density * 100f)
+
+                        binding.faceReticle.pivotX = 0f
+                        binding.faceReticle.pivotY = 0f
+                        binding.faceReticle.translationX = (bounds.left * pW).coerceAtLeast(0f)
+                        binding.faceReticle.translationY = (bounds.top * pH).coerceAtLeast(0f)
+                        binding.faceReticle.scaleX = boxW / reticleBaseSize
+                        binding.faceReticle.scaleY = boxH / reticleBaseSize
                         binding.faceReticle.visibility = View.VISIBLE
-                        binding.faceReticle.x = (bounds.left * pW).coerceAtLeast(0f)
-                        binding.faceReticle.y = (bounds.top * pH).coerceAtLeast(0f)
-                        val boxW = (bounds.width() * pW).toInt().coerceAtLeast(80)
-                        val boxH = (bounds.height() * pH).toInt().coerceAtLeast(80)
-                        val lp = binding.faceReticle.layoutParams
-                        lp.width = boxW
-                        lp.height = boxH
-                        binding.faceReticle.layoutParams = lp
                     }
                 } else {
                     binding.faceReticle.visibility = View.GONE

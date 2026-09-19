@@ -322,10 +322,20 @@ class DroidCamStreamer(
         return next
     }
 
+    private var lastHalUpdateTimeMs = 0L
+    private var lastAppliedCropRect: Rect? = null
+
     private fun applyCropRegion(cropRect: Rect) {
+        val now = SystemClock.uptimeMillis()
+        // Cap HAL updates to at most ~20 Hz (50ms) to ensure Qualcomm Spectra ISP AE convergence
+        if (now - lastHalUpdateTimeMs < 50L) return
+        if (lastAppliedCropRect == cropRect) return
+
         val session = captureSession ?: return
         val builder = repeatingRequestBuilder ?: return
         try {
+            lastHalUpdateTimeMs = now
+            lastAppliedCropRect = cropRect
             builder.set(CaptureRequest.SCALER_CROP_REGION, cropRect)
             session.setRepeatingRequest(builder.build(), captureCallback, cameraHandler)
         } catch (_: Exception) { }
@@ -690,18 +700,24 @@ class DroidCamStreamer(
                 return@setOnImageAvailableListener
             }
 
-            // Run gesture recognition at ~10 Hz (every 100ms)
-            val now = SystemClock.uptimeMillis()
-            if (settings.isGesturesEnabled && now - lastGestureProcessTimeMs > 100L) {
-                lastGestureProcessTimeMs = now
-                val bitmap = yuvImageToThumbnailBitmap(img)
-                if (bitmap != null) {
-                    gestureDetectorHelper?.processThumbnail(bitmap)
+            try {
+                // Run gesture recognition at ~6 Hz (every 160ms) using zero-copy MediaImageBuilder
+                val now = SystemClock.uptimeMillis()
+                if (settings.isGesturesEnabled && now - lastGestureProcessTimeMs > 160L) {
+                    lastGestureProcessTimeMs = now
+                    gestureDetectorHelper?.processImage(img, 90)
                 }
-            }
 
-            // Run face tracking at ~15 Hz (handles closing img internally)
-            aiTrackerEngine?.processImage(img, 90)
+                // Run face tracking at ~14 Hz (handles closing img internally)
+                val engine = aiTrackerEngine
+                if (engine != null && engine.isTrackingEnabled()) {
+                    engine.processImage(img, 90)
+                } else {
+                    img.close()
+                }
+            } catch (_: Exception) {
+                try { img.close() } catch (_: Exception) {}
+            }
         }, aiHandler)
         aiImageReader = aiReader
         surfaces.add(aiReader.surface)
@@ -782,41 +798,11 @@ class DroidCamStreamer(
     private val smoothingRunnable = object : Runnable {
         override fun run() {
             if (isStreaming && aiTrackerEngine?.isTrackingEnabled() == true) {
-                if (aiTrackerEngine?.updateSmoothingStep() == true) {
-                    val crop = aiTrackerEngine?.getCurrentCropRegion()
-                    if (crop != null) {
-                        applyCropRegion(crop)
-                    }
-                }
+                aiTrackerEngine?.updateSmoothingStep(0.016f)
             }
             if (isStreaming) {
                 cameraHandler?.postDelayed(this, 16) // 60 FPS motion damping
             }
-        }
-    }
-
-    private fun yuvImageToThumbnailBitmap(image: Image): Bitmap? {
-        return try {
-            val yBuffer = image.planes[0].buffer
-            val uBuffer = image.planes[1].buffer
-            val vBuffer = image.planes[2].buffer
-
-            val ySize = yBuffer.remaining()
-            val uSize = uBuffer.remaining()
-            val vSize = vBuffer.remaining()
-
-            val nv21 = ByteArray(ySize + uSize + vSize)
-            yBuffer.get(nv21, 0, ySize)
-            vBuffer.get(nv21, ySize, vSize)
-            uBuffer.get(nv21, ySize + vSize, uSize)
-
-            val yuvImage = YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
-            val out = ByteArrayOutputStream()
-            yuvImage.compressToJpeg(Rect(0, 0, image.width, image.height), 70, out)
-            val bytes = out.toByteArray()
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        } catch (_: Exception) {
-            null
         }
     }
 

@@ -1,7 +1,6 @@
 package com.darusc.vcamdroid.ai
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.Rect
 import android.graphics.RectF
 import android.media.Image
@@ -31,24 +30,45 @@ class AiTrackerEngine(
     private var faceDetector: FaceDetector? = null
     private var isFaceDetectorBusy = false
     private var lastInferenceTimeMs = 0L
-    private val FACE_INFERENCE_INTERVAL_MS = 66L // ~15 Hz background inference
+    private val FACE_INFERENCE_INTERVAL_MS = 80L // ~12 Hz inference is plenty and saves CPU
 
     // Sensor Geometry
     private var sensorRect: Rect = Rect(0, 0, 4608, 3456)
 
     // Dynamic Gimbal State
     private var isTrackingEnabled = true
-    private var userZoomFactor = 1.25f // Default 1.25x gives ideal headroom & panning margin
+    // Default 1.35x zoom gives 1200+ pixels of horizontal panning room and 1500+ pixels of vertical headroom
+    private var userZoomFactor = 1.35f
 
-    private val targetCropRect = RectF()
-    private val currentCropRect = RectF()
+    // Target and Smoothed Crop coordinates
+    private var targetCenterX = 2304f
+    private var targetCenterY = 1728f
+    private var currentCenterX = 2304f
+    private var currentCenterY = 1728f
 
-    // Smooth Damping Parameters
-    private val SMOOTHING_ALPHA = 0.12f // Critically damped motion (motorized gimbal feel)
-    private val DEADBAND_PIXELS = 45f   // Filter out small breathing micro-jitters
+    // SmoothDamp physics state for Bezier-like ease-in and ease-out
+    private var velocityX = 0f
+    private var velocityY = 0f
+    // 0.45s smooth time mimics a heavy motorized physical gimbal (smooth acceleration & deceleration)
+    private val SMOOTH_TIME = 0.45f
+    private val MAX_SPEED = 2800f // Max pixels per second
+
+    // Filtered face positions to remove ML detection jitter
+    private var filteredFaceX = 0.5f
+    private var filteredFaceY = 0.5f
+    private var hasValidFaceFilter = false
+
+    // Deadzone (normalized 0.0 - 1.0 fraction of crop window)
+    // While the face is inside this inner box, the camera is 100% stationary
+    private val DEADZONE_X_FRACTION = 0.12f
+    private val DEADZONE_Y_FRACTION = 0.10f
 
     private var consecutiveNoFaceFrames = 0
-    private val MAX_NO_FACE_HOLD_FRAMES = 30
+    private val MAX_NO_FACE_HOLD_FRAMES = 40
+
+    // Spatial change threshold to avoid micro-updates that cause AE flicker
+    private var lastEmittedCropRect = Rect()
+    private val MIN_PIXEL_CHANGE_THRESHOLD = 10 // At least 10 pixels movement
 
     init {
         initFaceDetector()
@@ -61,11 +81,11 @@ class AiTrackerEngine(
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
                 .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
                 .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
-                .setMinFaceSize(0.10f)
+                .setMinFaceSize(0.12f)
                 .build()
 
             faceDetector = FaceDetection.getClient(options)
-            Logger.log("AI_TRACKER", "BlazeFace FaceDetector initialized (Fast mode)")
+            Logger.log("AI_TRACKER", "BlazeFace FaceDetector initialized (SmoothDamp mode)")
         } catch (e: Exception) {
             Logger.log("AI_TRACKER", "Failed to initialize FaceDetector: ${e.message}")
         }
@@ -95,39 +115,27 @@ class AiTrackerEngine(
     fun isTrackingEnabled(): Boolean = isTrackingEnabled
 
     fun setUserZoom(zoom: Float) {
-        userZoomFactor = zoom.coerceIn(1.0f, 4.0f)
+        userZoomFactor = zoom.coerceIn(1.05f, 4.0f)
     }
 
     fun getUserZoom(): Float = userZoomFactor
 
     fun resetToDefaultCrop() {
-        val sW = sensorRect.width().toFloat()
-        val sH = sensorRect.height().toFloat()
+        targetCenterX = sensorRect.exactCenterX()
+        targetCenterY = sensorRect.exactCenterY()
+        currentCenterX = targetCenterX
+        currentCenterY = targetCenterY
+        velocityX = 0f
+        velocityY = 0f
+        hasValidFaceFilter = false
 
-        val cropW: Float
-        val cropH: Float
-
-        when (framingMode) {
-            FramingMode.LANDSCAPE_16_9 -> {
-                cropW = sW / userZoomFactor
-                cropH = cropW * (9f / 16f)
-            }
-            FramingMode.PORTRAIT_9_16 -> {
-                cropH = sH / userZoomFactor
-                cropW = cropH * (9f / 16f)
-            }
-        }
-
-        val left = sensorRect.left + (sW - cropW) / 2f
-        val top = sensorRect.top + (sH - cropH) / 2f
-        targetCropRect.set(left, top, left + cropW, top + cropH)
-        currentCropRect.set(targetCropRect)
-
-        onCropRegionChanged(toSensorRect(currentCropRect))
+        val rect = computeCropRect(currentCenterX, currentCenterY)
+        lastEmittedCropRect = rect
+        onCropRegionChanged(rect)
     }
 
     /**
-     * Called on each incoming camera analysis frame (asynchronous background thread)
+     * Called on each incoming camera analysis frame
      */
     fun processImage(image: Image, rotationDegrees: Int) {
         if (!isTrackingEnabled || isFaceDetectorBusy) {
@@ -145,12 +153,12 @@ class AiTrackerEngine(
 
         try {
             val inputImage = InputImage.fromMediaImage(image, rotationDegrees)
-            val imgW = if (rotationDegrees == 90 || rotationDegrees == 270) inputImage.height else inputImage.width
-            val imgH = if (rotationDegrees == 90 || rotationDegrees == 270) inputImage.width else inputImage.height
+            val imgW = inputImage.width.toFloat()
+            val imgH = inputImage.height.toFloat()
 
             faceDetector?.process(inputImage)
                 ?.addOnSuccessListener { faces ->
-                    handleFaceResults(faces, imgW, imgH)
+                    handleFaceResults(faces, imgW, imgH, rotationDegrees)
                 }
                 ?.addOnFailureListener { e ->
                     Logger.log("AI_TRACKER", "Face detection error: ${e.message}")
@@ -170,23 +178,16 @@ class AiTrackerEngine(
     }
 
     /**
-     * Compute new target crop coordinates from detected face
+     * Compute new target crop coordinates from detected face using visual servoing
      */
-    private fun handleFaceResults(faces: List<Face>, imgW: Int, imgH: Int) {
+    private fun handleFaceResults(faces: List<Face>, imgW: Float, imgH: Float, rotationDegrees: Int) {
         if (faces.isEmpty()) {
             consecutiveNoFaceFrames++
             if (consecutiveNoFaceFrames > MAX_NO_FACE_HOLD_FRAMES) {
-                // Return to centered view when subject leaves the frame
-                val sW = sensorRect.width().toFloat()
-                val sH = sensorRect.height().toFloat()
-                val cropW = currentCropRect.width()
-                val cropH = currentCropRect.height()
-                targetCropRect.set(
-                    sensorRect.left + (sW - cropW) / 2f,
-                    sensorRect.top + (sH - cropH) / 2f,
-                    sensorRect.left + (sW + cropW) / 2f,
-                    sensorRect.top + (sH + cropH) / 2f
-                )
+                // Smoothly drift back to center position when no one is in frame
+                targetCenterX = sensorRect.exactCenterX()
+                targetCenterY = sensorRect.exactCenterY()
+                hasValidFaceFilter = false
             }
             onFaceDetected(false, null)
             return
@@ -194,92 +195,170 @@ class AiTrackerEngine(
 
         consecutiveNoFaceFrames = 0
 
-        // Select the primary face (highest area)
+        // Select the primary face (largest bounding box)
         val primaryFace = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() } ?: return
         val box = primaryFace.boundingBox
 
-        val normFaceX = (box.centerX().toFloat() / imgW).coerceIn(0f, 1f)
-        val normFaceY = (box.centerY().toFloat() / imgH).coerceIn(0f, 1f)
-        val normFaceW = box.width().toFloat() / imgW
-        val normFaceH = box.height().toFloat() / imgH
+        val rawNormX = (box.centerX().toFloat() / imgW).coerceIn(0f, 1f)
+        val rawNormY = (box.centerY().toFloat() / imgH).coerceIn(0f, 1f)
+        val rawNormW = box.width().toFloat() / imgW
+        val rawNormH = box.height().toFloat() / imgH
 
-        onFaceDetected(true, RectF(normFaceX - normFaceW/2, normFaceY - normFaceH/2, normFaceX + normFaceW/2, normFaceY + normFaceH/2))
-
-        // Map normalized face center to physical active sensor coordinate
-        val sensorFaceX = sensorRect.left + normFaceX * sensorRect.width()
-        val sensorFaceY = sensorRect.top + normFaceY * sensorRect.height()
-
-        val sW = sensorRect.width().toFloat()
-        val sH = sensorRect.height().toFloat()
-
-        // Calculate crop size based on user zoom and aspect ratio
-        val cropW: Float
-        val cropH: Float
-
-        when (framingMode) {
-            FramingMode.LANDSCAPE_16_9 -> {
-                cropW = (sW / userZoomFactor).coerceIn(1920f, sW)
-                cropH = cropW * (9f / 16f)
-            }
-            FramingMode.PORTRAIT_9_16 -> {
-                cropH = (sH / userZoomFactor).coerceIn(1920f, sH)
-                cropW = cropH * (9f / 16f)
-            }
+        // Low-pass filter to strip raw bounding box jitter
+        if (!hasValidFaceFilter) {
+            filteredFaceX = rawNormX
+            filteredFaceY = rawNormY
+            hasValidFaceFilter = true
+        } else {
+            val filterAlpha = 0.30f // Temporal smoothing on raw face coordinates
+            filteredFaceX += (rawNormX - filteredFaceX) * filterAlpha
+            filteredFaceY += (rawNormY - filteredFaceY) * filterAlpha
         }
 
-        // Rule-of-Thirds Headroom: position face at 38% from the top of the cropped frame
-        var targetLeft = sensorFaceX - cropW / 2f
-        var targetTop = sensorFaceY - cropH * 0.38f
+        // Notify UI preview with filtered face position in display coordinates
+        onFaceDetected(true, RectF(
+            filteredFaceX - rawNormW / 2,
+            filteredFaceY - rawNormH / 2,
+            filteredFaceX + rawNormW / 2,
+            filteredFaceY + rawNormH / 2
+        ))
 
-        // Clamp to sensor bounds
-        if (targetLeft < sensorRect.left) targetLeft = sensorRect.left.toFloat()
-        if (targetLeft + cropW > sensorRect.right) targetLeft = sensorRect.right - cropW
-        if (targetTop < sensorRect.top) targetTop = sensorRect.top.toFloat()
-        if (targetTop + cropH > sensorRect.bottom) targetTop = sensorRect.bottom - cropH
-
-        // Apply deadband
-        val dx = abs(targetLeft - currentCropRect.left)
-        val dy = abs(targetTop - currentCropRect.top)
-
-        if (dx > DEADBAND_PIXELS || dy > DEADBAND_PIXELS) {
-            targetCropRect.set(targetLeft, targetTop, targetLeft + cropW, targetTop + cropH)
+        // Convert face normalized coordinates from ML Kit upright orientation back to sensor space
+        val (normXSensor, normYSensor) = when (rotationDegrees) {
+            90 -> Pair(filteredFaceY, 1f - filteredFaceX)
+            180 -> Pair(1f - filteredFaceX, 1f - filteredFaceY)
+            270 -> Pair(1f - filteredFaceY, filteredFaceX)
+            else -> Pair(filteredFaceX, filteredFaceY)
         }
+
+        val (cropW, cropH) = getCropDimensions()
+
+        // Desired position of face inside the crop:
+        // Horizontal: 50% (dead center)
+        // Vertical: 40% (cinematic rule-of-thirds headroom)
+        val desiredNormX = 0.50f
+        val desiredNormY = 0.40f
+
+        val errorX = normXSensor - desiredNormX
+        val errorY = normYSensor - desiredNormY
+
+        // Deadzone check: If face is within the inner deadzone, don't move the camera
+        if (abs(errorX) > DEADZONE_X_FRACTION) {
+            val deltaX = if (errorX > 0) errorX - DEADZONE_X_FRACTION else errorX + DEADZONE_X_FRACTION
+            targetCenterX = currentCenterX + deltaX * cropW
+        }
+        if (abs(errorY) > DEADZONE_Y_FRACTION) {
+            val deltaY = if (errorY > 0) errorY - DEADZONE_Y_FRACTION else errorY + DEADZONE_Y_FRACTION
+            targetCenterY = currentCenterY + deltaY * cropH
+        }
+
+        // Clamp target center to ensure crop box remains within physical sensor
+        val halfW = cropW / 2f
+        val halfH = cropH / 2f
+        targetCenterX = targetCenterX.coerceIn(sensorRect.left + halfW, sensorRect.right - halfW)
+        targetCenterY = targetCenterY.coerceIn(sensorRect.top + halfH, sensorRect.bottom - halfH)
     }
 
     /**
-     * Executes the smooth damping interpolation filter (called at 60 FPS / render loop)
+     * Executes the SmoothDamp (Critically Damped Harmonic Oscillator) Bezier curve step
+     * Called at 60 FPS / render loop (every 16ms)
+     * Returns true if position changed significantly enough to warrant updating camera HAL
      */
-    fun updateSmoothingStep(): Boolean {
-        val prevLeft = currentCropRect.left
-        val prevTop = currentCropRect.top
-        val prevW = currentCropRect.width()
-        val prevH = currentCropRect.height()
+    fun updateSmoothingStep(deltaTimeSec: Float = 0.016f): Boolean {
+        // SmoothDamp equation: critically damped spring with smooth ease-in & ease-out
+        currentCenterX = smoothDamp(currentCenterX, targetCenterX, ::velocityX, SMOOTH_TIME, MAX_SPEED, deltaTimeSec)
+        currentCenterY = smoothDamp(currentCenterY, targetCenterY, ::velocityY, SMOOTH_TIME, MAX_SPEED, deltaTimeSec)
 
-        currentCropRect.left += (targetCropRect.left - currentCropRect.left) * SMOOTHING_ALPHA
-        currentCropRect.top += (targetCropRect.top - currentCropRect.top) * SMOOTHING_ALPHA
-        currentCropRect.right += (targetCropRect.right - currentCropRect.right) * SMOOTHING_ALPHA
-        currentCropRect.bottom += (targetCropRect.bottom - currentCropRect.bottom) * SMOOTHING_ALPHA
+        val newRect = computeCropRect(currentCenterX, currentCenterY)
 
-        val changed = abs(currentCropRect.left - prevLeft) > 1.0f ||
-                      abs(currentCropRect.top - prevTop) > 1.0f ||
-                      abs(currentCropRect.width() - prevW) > 1.0f ||
-                      abs(currentCropRect.height() - prevH) > 1.0f
+        val deltaL = abs(newRect.left - lastEmittedCropRect.left)
+        val deltaT = abs(newRect.top - lastEmittedCropRect.top)
+        val deltaR = abs(newRect.right - lastEmittedCropRect.right)
+        val deltaB = abs(newRect.bottom - lastEmittedCropRect.bottom)
 
-        if (changed) {
-            onCropRegionChanged(toSensorRect(currentCropRect))
+        // Only update camera HAL when crop moved by more than MIN_PIXEL_CHANGE_THRESHOLD
+        // This stops the constant setRepeatingRequest() spam that resets AE and causes flickering!
+        val significantChange = deltaL >= MIN_PIXEL_CHANGE_THRESHOLD ||
+                                deltaT >= MIN_PIXEL_CHANGE_THRESHOLD ||
+                                deltaR >= MIN_PIXEL_CHANGE_THRESHOLD ||
+                                deltaB >= MIN_PIXEL_CHANGE_THRESHOLD
+
+        if (significantChange) {
+            lastEmittedCropRect = newRect
+            onCropRegionChanged(newRect)
+            return true
         }
 
-        return changed
+        return false
     }
 
-    fun getCurrentCropRegion(): Rect = toSensorRect(currentCropRect)
+    private fun getCropDimensions(): Pair<Float, Float> {
+        val sW = sensorRect.width().toFloat()
+        val sH = sensorRect.height().toFloat()
 
-    private fun toSensorRect(rf: RectF): Rect {
-        val l = rf.left.roundToInt().coerceIn(sensorRect.left, sensorRect.right)
-        val t = rf.top.roundToInt().coerceIn(sensorRect.top, sensorRect.bottom)
-        val r = rf.right.roundToInt().coerceIn(l, sensorRect.right)
-        val b = rf.bottom.roundToInt().coerceIn(t, sensorRect.bottom)
-        return Rect(l, t, r, b)
+        return when (framingMode) {
+            FramingMode.LANDSCAPE_16_9 -> {
+                val w = (sW / userZoomFactor).coerceIn(1920f, sW)
+                val h = w * (9f / 16f)
+                Pair(w, h)
+            }
+            FramingMode.PORTRAIT_9_16 -> {
+                val h = (sH / userZoomFactor).coerceIn(1920f, sH)
+                val w = h * (9f / 16f)
+                Pair(w, h)
+            }
+        }
+    }
+
+    private fun computeCropRect(centerX: Float, centerY: Float): Rect {
+        val (cropW, cropH) = getCropDimensions()
+        val halfW = cropW / 2f
+        val halfH = cropH / 2f
+
+        val cl = (centerX - halfW).coerceIn(sensorRect.left.toFloat(), (sensorRect.right - cropW).toFloat())
+        val ct = (centerY - halfH).coerceIn(sensorRect.top.toFloat(), (sensorRect.bottom - cropH).toFloat())
+
+        return Rect(cl.roundToInt(), ct.roundToInt(), (cl + cropW).roundToInt(), (ct + cropH).roundToInt())
+    }
+
+    fun getCurrentCropRegion(): Rect = computeCropRect(currentCenterX, currentCenterY)
+
+    /**
+     * Unity / Game Programming Gems SmoothDamp implementation
+     * Produces buttery-smooth Bezier S-curve acceleration and deceleration with zero overshoot
+     */
+    private fun smoothDamp(
+        current: Float,
+        target: Float,
+        velocityRef: kotlin.reflect.KMutableProperty0<Float>,
+        smoothTime: Float,
+        maxSpeed: Float,
+        deltaTime: Float
+    ): Float {
+        val st = smoothTime.coerceAtLeast(0.0001f)
+        val omega = 2f / st
+        val x = omega * deltaTime
+        val exp = 1f / (1f + x + 0.48f * x * x + 0.235f * x * x * x)
+        var change = current - target
+        val originalTo = target
+
+        val maxChange = maxSpeed * st
+        change = change.coerceIn(-maxChange, maxChange)
+        val clampedTarget = current - change
+
+        var vel = velocityRef.get()
+        val temp = (vel + omega * change) * deltaTime
+        vel = (vel - omega * temp) * exp
+        var output = clampedTarget + (change + temp) * exp
+
+        // Prevent overshooting
+        if ((originalTo - current > 0f) == (output > originalTo)) {
+            output = originalTo
+            vel = 0f
+        }
+
+        velocityRef.set(vel)
+        return output
     }
 
     fun close() {
