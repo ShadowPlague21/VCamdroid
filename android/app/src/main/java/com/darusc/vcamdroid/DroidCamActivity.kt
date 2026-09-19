@@ -175,27 +175,9 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
             }
         }
 
-        streamer.onAiFaceTrackingUpdate = { hasFace, bounds ->
+        streamer.onAiFaceTrackingUpdate = { _, _ ->
             runOnUiThread {
-                if (hasFace && bounds != null && streamer.aiTrackerEngine?.isTrackingEnabled() == true) {
-                    val pW = binding.cameraPreview.width.toFloat()
-                    val pH = binding.cameraPreview.height.toFloat()
-                    if (pW > 0 && pH > 0) {
-                        val boxW = (bounds.width() * pW).coerceAtLeast(60f)
-                        val boxH = (bounds.height() * pH).coerceAtLeast(60f)
-                        val reticleBaseSize = binding.faceReticle.width.toFloat().takeIf { it > 0 } ?: (resources.displayMetrics.density * 100f)
-
-                        binding.faceReticle.pivotX = 0f
-                        binding.faceReticle.pivotY = 0f
-                        binding.faceReticle.translationX = (bounds.left * pW).coerceAtLeast(0f)
-                        binding.faceReticle.translationY = (bounds.top * pH).coerceAtLeast(0f)
-                        binding.faceReticle.scaleX = boxW / reticleBaseSize
-                        binding.faceReticle.scaleY = boxH / reticleBaseSize
-                        binding.faceReticle.visibility = View.VISIBLE
-                    }
-                } else {
-                    binding.faceReticle.visibility = View.GONE
-                }
+                binding.faceReticle.visibility = View.GONE
             }
         }
     }
@@ -876,9 +858,40 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
         return null
     }
 
+    private fun adjustPreviewAspectRatio(streamWidth: Int, streamHeight: Int) {
+        binding.root.post {
+            val rootW = binding.root.width
+            val rootH = binding.root.height
+            if (rootW <= 0 || rootH <= 0 || streamWidth <= 0 || streamHeight <= 0) return@post
+
+            val aspect = if (streamWidth > streamHeight) {
+                streamHeight.toFloat() / streamWidth.toFloat()
+            } else {
+                streamWidth.toFloat() / streamHeight.toFloat()
+            }
+
+            var targetW = rootW
+            var targetH = (rootW / aspect).roundToInt()
+
+            if (targetH > rootH) {
+                targetH = rootH
+                targetW = (rootH * aspect).roundToInt()
+            }
+
+            val lp = binding.cameraPreview.layoutParams
+            if (lp.width != targetW || lp.height != targetH) {
+                lp.width = targetW
+                lp.height = targetH
+                binding.cameraPreview.layoutParams = lp
+                binding.cameraPreview.holder.setFixedSize(targetW, targetH)
+            }
+        }
+    }
+
     // --- SurfaceHolder.Callback ---
 
     override fun surfaceCreated(holder: SurfaceHolder) {
+        adjustPreviewAspectRatio(settings.targetResolutionWidth, settings.targetResolutionHeight)
         streamer.onScreenOn(holder.surface)
     }
 
@@ -895,6 +908,7 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
     override fun onVideoStreamStarted(format: String, width: Int, height: Int) {
         val mode = if (isUsbConnection) "USB" else "Wi-Fi"
         runOnUiThread {
+            adjustPreviewAspectRatio(width, height)
             binding.txtSubStatus.text = "OBS Active ($mode): ${width}x${height} $format @ ${settings.targetFps}fps"
             binding.txtSubStatus.setTextColor(Color.parseColor("#00E676"))
         }

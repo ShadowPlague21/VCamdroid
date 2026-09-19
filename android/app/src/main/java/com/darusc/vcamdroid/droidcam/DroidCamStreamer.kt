@@ -133,6 +133,8 @@ class DroidCamStreamer(
     private var aiThread: HandlerThread? = null
     private var aiHandler: Handler? = null
     private var lastGestureProcessTimeMs = 0L
+    private var aiBitmap: Bitmap? = null
+    private var aiRgbPixels: IntArray? = null
 
     init {
         currentWidth = settings.targetResolutionWidth
@@ -692,7 +694,7 @@ class DroidCamStreamer(
             aiImageReader?.close()
         } catch (_: Exception) { }
 
-        val aiReader = ImageReader.newInstance(320, 240, ImageFormat.YUV_420_888, 2)
+        val aiReader = ImageReader.newInstance(320, 240, ImageFormat.YUV_420_888, 4)
         aiReader.setOnImageAvailableListener({ reader ->
             val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
             if (!isStreaming) {
@@ -701,19 +703,39 @@ class DroidCamStreamer(
             }
 
             try {
-                // Run gesture recognition at ~6 Hz (every 160ms) using zero-copy MediaImageBuilder
                 val now = SystemClock.uptimeMillis()
-                if (settings.isGesturesEnabled && now - lastGestureProcessTimeMs > 160L) {
-                    lastGestureProcessTimeMs = now
-                    gestureDetectorHelper?.processImage(img, 90)
+                val needFace = aiTrackerEngine?.isReadyForInference(now) == true
+                val needGesture = settings.isGesturesEnabled && gestureDetectorHelper?.isReadyForInference(now) == true
+
+                if (!needFace && !needGesture) {
+                    img.close()
+                    return@setOnImageAvailableListener
                 }
 
-                // Run face tracking at ~14 Hz (handles closing img internally)
-                val engine = aiTrackerEngine
-                if (engine != null && engine.isTrackingEnabled()) {
-                    engine.processImage(img, 90)
-                } else {
-                    img.close()
+                val w = img.width
+                val h = img.height
+                if (aiBitmap == null || aiBitmap?.width != w || aiBitmap?.height != h) {
+                    aiBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    aiRgbPixels = IntArray(w * h)
+                }
+
+                val bitmap = aiBitmap
+                val pixels = aiRgbPixels
+                if (bitmap != null && pixels != null) {
+                    fastYuv420ToRgb(img, pixels)
+                    bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
+                }
+
+                // CRITICAL: Close hardware camera image IMMEDIATELY (<0.3ms)! Zero HAL buffer starvation!
+                img.close()
+
+                if (bitmap != null) {
+                    if (needGesture) {
+                        gestureDetectorHelper?.processBitmap(bitmap, 90)
+                    }
+                    if (needFace) {
+                        aiTrackerEngine?.processBitmap(bitmap, 90)
+                    }
                 }
             } catch (_: Exception) {
                 try { img.close() } catch (_: Exception) {}
@@ -802,6 +824,51 @@ class DroidCamStreamer(
             }
             if (isStreaming) {
                 cameraHandler?.postDelayed(this, 16) // 60 FPS motion damping
+            }
+        }
+    }
+
+    private fun fastYuv420ToRgb(image: Image, outPixels: IntArray) {
+        val width = image.width
+        val height = image.height
+        val planes = image.planes
+        val yPlane = planes[0]
+        val uPlane = planes[1]
+        val vPlane = planes[2]
+
+        val yBuffer = yPlane.buffer
+        val uBuffer = uPlane.buffer
+        val vBuffer = vPlane.buffer
+
+        yBuffer.rewind()
+        uBuffer.rewind()
+        vBuffer.rewind()
+
+        val yRowStride = yPlane.rowStride
+        val yPixelStride = yPlane.pixelStride
+        val uRowStride = uPlane.rowStride
+        val uPixelStride = uPlane.pixelStride
+        val vRowStride = vPlane.rowStride
+        val vPixelStride = vPlane.pixelStride
+
+        var outIndex = 0
+        for (y in 0 until height) {
+            val yRowStart = y * yRowStride
+            val uRowStart = (y shr 1) * uRowStride
+            val vRowStart = (y shr 1) * vRowStride
+            for (x in 0 until width) {
+                val yVal = (yBuffer.get(yRowStart + x * yPixelStride).toInt() and 0xFF) - 16
+                val uvColOffset = (x shr 1) * uPixelStride
+                val vColOffset = (x shr 1) * vPixelStride
+                val uVal = (uBuffer.get(uRowStart + uvColOffset).toInt() and 0xFF) - 128
+                val vVal = (vBuffer.get(vRowStart + vColOffset).toInt() and 0xFF) - 128
+
+                val y298 = 298 * (if (yVal < 0) 0 else yVal)
+                val r = ((y298 + 409 * vVal + 128) shr 8).coerceIn(0, 255)
+                val g = ((y298 - 100 * uVal - 208 * vVal + 128) shr 8).coerceIn(0, 255)
+                val b = ((y298 + 516 * uVal + 128) shr 8).coerceIn(0, 255)
+
+                outPixels[outIndex++] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
             }
         }
     }

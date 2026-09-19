@@ -7,13 +7,15 @@
     android:background="#0A0A0C"
     tools:context=".DroidCamActivity">
 
-    <!-- Camera Preview Viewport -->
+    <!-- Camera Preview Viewport (Aspect-Fit Center, Uncropped) -->
     <SurfaceView
         android:id="@+id/cameraPreview"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        android:layout_height="wrap_content"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent" />
 
     <!-- Tap-To-Focus Visual Target Ring -->
     <ImageView
@@ -31,29 +33,103 @@
         android:id="@+id/topBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="16dp"
-        android:paddingVertical="12dp"
+        android:orientation="vertical"
+        android:paddingHorizontal="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
         android:background="#B312131A"
         app:layout_constraintTop_toTopOf="parent">
 
-        <ImageButton
-            android:id="@+id/btnBack"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_menu_revert"
-            app:tint="#FFFFFF"
-            android:contentDescription="Back" />
-
-        <!-- Status Pill -->
+        <!-- Action Row -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:orientation="vertical">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <ImageButton
+                android:id="@+id/btnBack"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_revert"
+                app:tint="#FFFFFF"
+                android:contentDescription="Back" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <!-- Studio Tally Pill -->
+            <TextView
+                android:id="@+id/txtTally"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp"
+                android:text="STANDBY"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:background="#2E303E"
+                android:layout_marginEnd="6dp" />
+
+            <!-- AI Tracking Toggle Button -->
+            <Button
+                android:id="@+id/btnAiTrack"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:text="AI ON"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="#000000"
+                android:backgroundTint="#00E676"
+                android:paddingHorizontal="10dp"
+                android:layout_marginEnd="6dp" />
+
+            <!-- Framing Mode Toggle Button -->
+            <Button
+                android:id="@+id/btnFramingMode"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:text="16:9"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#2E303E"
+                android:paddingHorizontal="10dp"
+                android:layout_marginEnd="6dp" />
+
+            <!-- AMOLED Dim Mode Toggle Button -->
+            <ImageButton
+                android:id="@+id/btnDim"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_lock_power_off"
+                app:tint="#64B5F6"
+                android:layout_marginEnd="4dp"
+                android:contentDescription="Dim Screen" />
+
+            <!-- Studio Settings Button -->
+            <ImageButton
+                android:id="@+id/btnSettings"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_preferences"
+                app:tint="#FFFFFF"
+                android:contentDescription="Settings" />
+        </LinearLayout>
+
+        <!-- Status Info Row (Un-squished) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="6dp">
 
             <TextView
                 android:id="@+id/txtConnectionPill"
@@ -61,78 +137,29 @@
                 android:layout_height="wrap_content"
                 android:text="192.168.1.xxx : 4747"
                 android:textColor="#00E676"
-                android:textSize="14sp"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end"
                 android:fontFamily="sans-serif-medium" />
 
             <TextView
-                android:id="@+id/txtSubStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Wi-Fi &amp; USB ADB Ready"
+                android:text=" • "
+                android:textColor="#666666"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/txtSubStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Ready for OBS Studio"
                 android:textColor="#9E9E9E"
-                android:textSize="11sp" />
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
         </LinearLayout>
-
-        <!-- Studio Tally Pill -->
-        <TextView
-            android:id="@+id/txtTally"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingHorizontal="10dp"
-            android:paddingVertical="4dp"
-            android:text="STANDBY"
-            android:textColor="#FFFFFF"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:background="#2E303E"
-            android:layout_marginEnd="8dp" />
-
-        <!-- AI Tracking Toggle Button -->
-        <Button
-            android:id="@+id/btnAiTrack"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:text="AI ON"
-            android:textSize="10sp"
-            android:textStyle="bold"
-            android:textColor="#000000"
-            android:backgroundTint="#00E676"
-            android:paddingHorizontal="8dp"
-            android:layout_marginEnd="6dp" />
-
-        <!-- Framing Mode Toggle Button -->
-        <Button
-            android:id="@+id/btnFramingMode"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:text="16:9"
-            android:textSize="10sp"
-            android:textStyle="bold"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#2E303E"
-            android:paddingHorizontal="8dp"
-            android:layout_marginEnd="6dp" />
-
-        <!-- AMOLED Dim Mode Toggle Button -->
-        <ImageButton
-            android:id="@+id/btnDim"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_lock_power_off"
-            app:tint="#64B5F6"
-            android:layout_marginEnd="6dp"
-            android:contentDescription="Dim Screen" />
-
-        <!-- Studio Settings Button -->
-        <ImageButton
-            android:id="@+id/btnSettings"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_menu_preferences"
-            app:tint="#FFFFFF"
-            android:contentDescription="Settings" />
     </LinearLayout>
 
     <!-- Live Gesture & AI Feedback Toast Pill -->

@@ -1,6 +1,7 @@
 package com.darusc.vcamdroid.ai
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Rect
 import android.graphics.RectF
 import android.media.Image
@@ -37,8 +38,8 @@ class AiTrackerEngine(
 
     // Dynamic Gimbal State
     private var isTrackingEnabled = true
-    // Default 1.35x zoom gives 1200+ pixels of horizontal panning room and 1500+ pixels of vertical headroom
-    private var userZoomFactor = 1.35f
+    // Default 1.15x zoom gives full, natural wide framing with gentle headroom and panning space
+    private var userZoomFactor = 1.15f
 
     // Target and Smoothed Crop coordinates
     private var targetCenterX = 2304f
@@ -132,6 +133,41 @@ class AiTrackerEngine(
         val rect = computeCropRect(currentCenterX, currentCenterY)
         lastEmittedCropRect = rect
         onCropRegionChanged(rect)
+    }
+
+    fun isReadyForInference(now: Long): Boolean {
+        return isTrackingEnabled && !isFaceDetectorBusy && (now - lastInferenceTimeMs >= FACE_INFERENCE_INTERVAL_MS)
+    }
+
+    /**
+     * Process already-converted in-memory bitmap - zero hardware camera buffer lock time!
+     */
+    fun processBitmap(bitmap: Bitmap, rotationDegrees: Int) {
+        if (!isTrackingEnabled || isFaceDetectorBusy) return
+
+        val now = SystemClock.uptimeMillis()
+        lastInferenceTimeMs = now
+        isFaceDetectorBusy = true
+
+        try {
+            val inputImage = InputImage.fromBitmap(bitmap, rotationDegrees)
+            val imgW = inputImage.width.toFloat()
+            val imgH = inputImage.height.toFloat()
+
+            faceDetector?.process(inputImage)
+                ?.addOnSuccessListener { faces ->
+                    handleFaceResults(faces, imgW, imgH, rotationDegrees)
+                }
+                ?.addOnFailureListener { e ->
+                    Logger.log("AI_TRACKER", "Face detection error: ${e.message}")
+                }
+                ?.addOnCompleteListener {
+                    isFaceDetectorBusy = false
+                }
+        } catch (e: Exception) {
+            isFaceDetectorBusy = false
+            Logger.log("AI_TRACKER", "processBitmap error: ${e.message}")
+        }
     }
 
     /**

@@ -94,34 +94,22 @@ class GestureDetectorHelper(
 
     fun isTrackingActive(): Boolean = trackingActive
 
-    private var reusableBitmap: Bitmap? = null
-    private var rgbPixels: IntArray? = null
+    private var isBusy = false
+
+    fun isReadyForInference(now: Long): Boolean {
+        return isInitialized && !isBusy && (now - lastInferenceTimeMs >= INFERENCE_INTERVAL_MS)
+    }
 
     /**
-     * Process Image directly via high-speed zero-allocation integer YUV->ARGB converter
+     * Process already-converted in-memory bitmap - zero hardware buffer lock time!
      */
-    fun processImage(image: Image, rotationDegrees: Int = 90) {
-        if (!isInitialized || gestureRecognizer == null) return
-
+    fun processBitmap(bitmap: Bitmap, rotationDegrees: Int = 90) {
+        if (!isInitialized || gestureRecognizer == null || isBusy) return
+        isBusy = true
         val now = SystemClock.uptimeMillis()
-        if (now - lastInferenceTimeMs < INFERENCE_INTERVAL_MS) {
-            return
-        }
         lastInferenceTimeMs = now
 
         try {
-            val width = image.width
-            val height = image.height
-            if (reusableBitmap == null || reusableBitmap?.width != width || reusableBitmap?.height != height) {
-                reusableBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                rgbPixels = IntArray(width * height)
-            }
-            val bitmap = reusableBitmap ?: return
-            val pixels = rgbPixels ?: return
-
-            fastYuv420ToRgb(image, pixels)
-            bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
-
             val mpImage = BitmapImageBuilder(bitmap).build()
             val imageProcessingOptions = com.google.mediapipe.tasks.vision.core.ImageProcessingOptions.builder()
                 .setRotationDegrees(rotationDegrees)
@@ -131,6 +119,8 @@ class GestureDetectorHelper(
             handleGestureResult(result, now)
         } catch (e: Exception) {
             Logger.log("GESTURE_AI", "Recognition error: ${e.message}")
+        } finally {
+            isBusy = false
         }
     }
 
