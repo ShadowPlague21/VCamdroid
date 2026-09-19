@@ -20,6 +20,7 @@ import android.media.MediaFormat
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Range
 import android.view.Surface
@@ -126,6 +127,8 @@ class DroidCamStreamer(
         private set
     var hasFlash: Boolean = false
         private set
+    var supportsZoomRatio: Boolean = false
+        private set
     var minExposureCompensation: Int = -4
         private set
     var maxExposureCompensation: Int = 4
@@ -144,6 +147,7 @@ class DroidCamStreamer(
     var onAiTrackingStateChanged: ((Boolean) -> Unit)? = null
     var onAiFaceTrackingUpdate: ((Boolean, RectF?) -> Unit)? = null
     var onGestureFeedback: ((String) -> Unit)? = null
+    var onZoomChanged: ((Float) -> Unit)? = null
 
     private var aiImageReader: ImageReader? = null
     private var aiThread: HandlerThread? = null
@@ -204,6 +208,8 @@ class DroidCamStreamer(
             }
         ).apply {
             setTrackingActive(settings.isAiTrackingEnabled)
+            setZoomLimits(minZoomFactor, maxZoomFactor)
+            updateCurrentZoom(currentZoom)
         }
     }
 
@@ -211,6 +217,33 @@ class DroidCamStreamer(
         previewSurface = surface
         if (isStreaming) {
             updateCaptureSession()
+        }
+    }
+
+    fun getOptimalPreviewSize(targetW: Int, targetH: Int): Pair<Int, Int> {
+        if (targetW <= 0 || targetH <= 0) return Pair(1920, 1080)
+        val cameraId = getCameraId(isBackCamera)
+        val chars = try {
+            cameraManager.getCameraCharacteristics(cameraId)
+        } catch (_: Exception) { return Pair(targetW, targetH) }
+        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return Pair(targetW, targetH)
+        val sizes = map.getOutputSizes(android.graphics.SurfaceTexture::class.java) ?: return Pair(targetW, targetH)
+
+        val targetRatio = maxOf(targetW, targetH).toFloat() / minOf(targetW, targetH).toFloat()
+        val matching = sizes.filter { size ->
+            val r = maxOf(size.width, size.height).toFloat() / minOf(size.width, size.height).toFloat()
+            kotlin.math.abs(r - targetRatio) < 0.03f
+        }
+
+        val pool = if (matching.isNotEmpty()) matching else sizes.toList()
+        val chosen = pool.filter { maxOf(it.width, it.height) <= 1920 }
+            .maxByOrNull { it.width * it.height }
+            ?: pool.minByOrNull { kotlin.math.abs(maxOf(it.width, it.height) - maxOf(targetW, targetH)) }
+
+        return if (chosen != null) {
+            Pair(maxOf(chosen.width, chosen.height), minOf(chosen.width, chosen.height))
+        } else {
+            Pair(maxOf(targetW, targetH), minOf(targetW, targetH))
         }
     }
 
@@ -262,11 +295,13 @@ class DroidCamStreamer(
     fun startLocalPreview(facingBack: Boolean = isBackCamera) {
         if (isStreaming) return
         isBackCamera = facingBack
+        currentWidth = settings.targetResolutionWidth
+        currentHeight = settings.targetResolutionHeight
         aiTrackerEngine?.setStreamSize(currentWidth, currentHeight)
         closeCameraSession(releaseThreads = false)
         startBackgroundThread()
         openCamera()
-        Logger.log("DROIDCAM_STREAMER", "Local preview started")
+        Logger.log("DROIDCAM_STREAMER", "Local preview started: $currentWidth x $currentHeight")
     }
 
     fun switchLens(facingBack: Boolean) {
@@ -343,11 +378,38 @@ class DroidCamStreamer(
     }
 
     fun setZoom(zoom: Float) {
-        currentZoom = zoom.coerceIn(minZoomFactor, maxZoomFactor)
+        val target = zoom.coerceIn(minZoomFactor, maxZoomFactor)
+        if (kotlin.math.abs(target - currentZoom) < 0.005f) return
+        currentZoom = target
         settings.lastZoomFactor = currentZoom
         aiTrackerEngine?.setUserZoom(currentZoom)
         gestureDetectorHelper?.updateCurrentZoom(currentZoom)
-        applyCaptureSettings()
+        applyZoomOnly()
+        onZoomChanged?.invoke(currentZoom)
+    }
+
+    private fun applyZoomOnly() {
+        val session = captureSession ?: return
+        val builder = repeatingRequestBuilder ?: return
+        val camera = cameraDevice ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && supportsZoomRatio) {
+                builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, currentZoom)
+            } else {
+                val chars = cameraManager.getCameraCharacteristics(camera.id)
+                val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+                if (sensorRect != null) {
+                    val cropW = (sensorRect.width() / currentZoom).roundToInt()
+                    val cropH = (sensorRect.height() / currentZoom).roundToInt()
+                    val cropX = (sensorRect.width() - cropW) / 2
+                    val cropY = (sensorRect.height() - cropH) / 2
+                    builder.set(CaptureRequest.SCALER_CROP_REGION, Rect(cropX, cropY, cropX + cropW, cropY + cropH))
+                }
+            }
+            session.setRepeatingRequest(builder.build(), captureCallback, cameraHandler)
+        } catch (e: Exception) {
+            Logger.log("DROIDCAM_STREAMER", "applyZoomOnly error: ${e.message}")
+        }
     }
 
     // --- AI Tracking Controls ---
@@ -486,26 +548,28 @@ class DroidCamStreamer(
         applyCaptureSettings()
     }
 
-    fun triggerTapToFocus(touchX: Float, touchY: Float, viewWidth: Int, viewHeight: Int) {
+    fun triggerTapToFocus(normSensorX: Float, normSensorY: Float) {
         val session = captureSession ?: return
         val camera = cameraDevice ?: return
         val builder = repeatingRequestBuilder ?: return
 
         try {
             val chars = cameraManager.getCameraCharacteristics(camera.id)
-            val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return
+            val activeArray = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return
+            val targetRect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && supportsZoomRatio) {
+                activeArray
+            } else {
+                lastAppliedCropRect ?: activeArray
+            }
 
-            val normalizedX = (touchX / viewWidth.toFloat()).coerceIn(0.0f, 1.0f)
-            val normalizedY = (touchY / viewHeight.toFloat()).coerceIn(0.0f, 1.0f)
+            val centerX = targetRect.left + (normSensorX.coerceIn(0.0f, 1.0f) * targetRect.width()).toInt()
+            val centerY = targetRect.top + (normSensorY.coerceIn(0.0f, 1.0f) * targetRect.height()).toInt()
 
-            val focusAreaSize = 250
-            val centerX = (normalizedX * sensorRect.width()).toInt()
-            val centerY = (normalizedY * sensorRect.height()).toInt()
-
-            val left = (centerX - focusAreaSize / 2).coerceIn(sensorRect.left, sensorRect.right - focusAreaSize)
-            val top = (centerY - focusAreaSize / 2).coerceIn(sensorRect.top, sensorRect.bottom - focusAreaSize)
-            val right = left + focusAreaSize
-            val bottom = top + focusAreaSize
+            val boxSize = (minOf(targetRect.width(), targetRect.height()) / 10).coerceAtLeast(100)
+            val left = (centerX - boxSize / 2).coerceIn(targetRect.left, targetRect.right - boxSize)
+            val top = (centerY - boxSize / 2).coerceIn(targetRect.top, targetRect.bottom - boxSize)
+            val right = (left + boxSize).coerceIn(targetRect.left, targetRect.right)
+            val bottom = (top + boxSize).coerceIn(targetRect.top, targetRect.bottom)
 
             val meteringRect = MeteringRectangle(Rect(left, top, right, bottom), MeteringRectangle.METERING_WEIGHT_MAX)
 
@@ -705,9 +769,11 @@ class DroidCamStreamer(
 
     @SuppressLint("MissingPermission")
     private fun openCamera() {
+        startBackgroundThread()
         val cameraId = getCameraId(isBackCamera)
         queryCameraCapabilities(cameraId)
 
+        val handler = cameraHandler ?: Handler(Looper.getMainLooper())
         cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
             override fun onOpened(camera: CameraDevice) {
                 cameraDevice = camera
@@ -724,7 +790,7 @@ class DroidCamStreamer(
                 camera.close()
                 cameraDevice = null
             }
-        }, cameraHandler)
+        }, handler)
     }
 
     private fun queryCameraCapabilities(cameraId: String) {
@@ -737,13 +803,16 @@ class DroidCamStreamer(
             if (zoomRange != null) {
                 minZoomFactor = zoomRange.lower
                 maxZoomFactor = zoomRange.upper
+                supportsZoomRatio = true
             } else {
                 minZoomFactor = 1.0f
                 maxZoomFactor = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 8.0f
+                supportsZoomRatio = false
             }
         } else {
             minZoomFactor = 1.0f
             maxZoomFactor = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 8.0f
+            supportsZoomRatio = false
         }
 
         val evRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
@@ -790,6 +859,8 @@ class DroidCamStreamer(
             aiTrackerEngine?.setSensorActiveArray(sensorRect)
         }
         aiTrackerEngine?.setStreamSize(currentWidth, currentHeight)
+        val hasHwZoom = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE) != null
+        aiTrackerEngine?.setHardwareZoomActive(hasHwZoom)
 
         sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
         supportsRotateAndCrop180 = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -800,7 +871,10 @@ class DroidCamStreamer(
         }
         rotateAndCrop180Active = supportsRotateAndCrop180 && flipHorizontal && flipVertical
 
+        gestureDetectorHelper?.setZoomLimits(minZoomFactor, maxZoomFactor)
+        gestureDetectorHelper?.updateCurrentZoom(currentZoom)
         onCapabilitiesChanged?.invoke()
+        onZoomChanged?.invoke(currentZoom)
     }
 
     private val captureCallback = object : CameraCaptureSession.CaptureCallback() {

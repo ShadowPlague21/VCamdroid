@@ -32,6 +32,7 @@ class AiTrackerEngine(
 
     // Dynamic Gimbal State
     private var isTrackingEnabled = false
+    private var isHardwareZoomActive = false
     // Default 1.0x zoom follows the HUD; crop aspect matches the stream
     private var userZoomFactor = 1.0f
     private var streamWidth = 1920
@@ -113,6 +114,10 @@ class AiTrackerEngine(
 
     fun setUserZoom(zoom: Float) {
         userZoomFactor = zoom.coerceIn(1.0f, 8.0f)
+    }
+
+    fun setHardwareZoomActive(active: Boolean) {
+        isHardwareZoomActive = active
     }
 
     fun getUserZoom(): Float = userZoomFactor
@@ -327,7 +332,8 @@ class AiTrackerEngine(
     private fun getCropDimensions(): Pair<Float, Float> {
         val sW = sensorRect.width().toFloat()
         val sH = sensorRect.height().toFloat()
-        val zoom = userZoomFactor.coerceAtLeast(1.0f)
+        // When hardware CONTROL_ZOOM_RATIO is active, do not compound digital zoom into crop rect
+        val zoom = if (isHardwareZoomActive) 1.0f else userZoomFactor.coerceAtLeast(1.0f)
         val targetAspect = streamWidth.toFloat() / streamHeight.toFloat()
         val sensorAspect = sW / sH
         val cropW: Float

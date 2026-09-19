@@ -14,3 +14,7 @@ ui_screenshots/
 *.jpeg
 *.webp
 *.bmp
+
+# Local AI agent skills and configs - do not commit
+.agents/
+.cursor/
