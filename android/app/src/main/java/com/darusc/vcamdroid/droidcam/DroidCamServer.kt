@@ -104,6 +104,17 @@ class DroidCamServer(
                     socket.close()
                 }
 
+                firstLine.startsWith("GET /resolutions") || firstLine.startsWith("GET /probe") || firstLine.startsWith("GET /v1/resolutions") -> {
+                    val (backRes, frontRes) = com.darusc.vcamdroid.video.queryDeviceResolutions(context)
+                    val backStr = backRes.joinToString(",") { "\"${it.first}x${it.second}\"" }
+                    val frontStr = frontRes.joinToString(",") { "\"${it.first}x${it.second}\"" }
+                    val body = "{\"back\":[$backStr],\"front\":[$frontStr]}"
+                    val response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n$body"
+                    socket.getOutputStream().write(response.toByteArray())
+                    socket.getOutputStream().flush()
+                    socket.close()
+                }
+
                 firstLine.startsWith("GET /battery") -> {
                     val batteryLevel = getBatteryPercentage()
                     val body = "$batteryLevel"
@@ -128,8 +139,8 @@ class DroidCamServer(
                     socket.close()
                 }
 
-                firstLine.contains("/video/") -> {
-                    // Pattern: GET /v5/video/<format>/<width>x<height>/port/<port>/os/...
+                firstLine.contains("/video/") || firstLine.contains("/video") -> {
+                    // Pattern: GET /v5/video/<format>/<width>x<height>/... or /video/<width>x<height>
                     handleVideoStreamRequest(socket, firstLine)
                 }
 
@@ -154,25 +165,34 @@ class DroidCamServer(
     }
 
     private fun handleVideoStreamRequest(socket: Socket, requestLine: String) {
-        // Parse format & resolution
-        // e.g., "GET /v5/video/avc/1920x1080/port/4747/os/windows/..."
-        var format = "avc" // or "hevc"
-        var width = 1920
-        var height = 1080
+        val settings = DroidCamSettings(context)
+        var format = if (requestLine.contains("hevc", ignoreCase = true) || requestLine.contains("h265", ignoreCase = true)) "hevc" else "avc"
+        var width = settings.targetResolutionWidth
+        var height = settings.targetResolutionHeight
 
         try {
-            val parts = requestLine.split("/")
-            // parts[0] = "GET "
-            // parts[1] = "v5"
-            // parts[2] = "video"
-            // parts[3] = <format> ("avc", "hevc", "jpg")
-            // parts[4] = <resolution> ("1920x1080")
-            if (parts.size >= 5) {
-                format = parts[3].lowercase()
-                val resParts = parts[4].split("x")
-                if (resParts.size == 2) {
-                    width = resParts[0].toIntOrNull() ?: 1920
-                    height = resParts[1].toIntOrNull() ?: 1080
+            val resRegex = Regex("""(\d{3,4})x(\d{3,4})""", RegexOption.IGNORE_CASE)
+            val match = resRegex.find(requestLine)
+            if (match != null) {
+                width = match.groupValues[1].toIntOrNull() ?: width
+                height = match.groupValues[2].toIntOrNull() ?: height
+            } else {
+                when {
+                    requestLine.contains("4k", ignoreCase = true) || requestLine.contains("2160p", ignoreCase = true) -> {
+                        width = 3840; height = 2160
+                    }
+                    requestLine.contains("1440p", ignoreCase = true) -> {
+                        width = 2560; height = 1440
+                    }
+                    requestLine.contains("1080p", ignoreCase = true) -> {
+                        width = 1920; height = 1080
+                    }
+                    requestLine.contains("720p", ignoreCase = true) -> {
+                        width = 1280; height = 720
+                    }
+                    requestLine.contains("480p", ignoreCase = true) -> {
+                        width = 640; height = 480
+                    }
                 }
             }
         } catch (e: Exception) {

@@ -12,6 +12,8 @@ class DroidCamSettings(context: Context) {
         private const val PREFS_NAME = "droidcam_preferences"
 
         const val KEY_TARGET_BITRATE = "target_bitrate_kbps"
+        const val KEY_TARGET_RES_WIDTH = "target_resolution_width"
+        const val KEY_TARGET_RES_HEIGHT = "target_resolution_height"
         const val KEY_KEYFRAME_INTERVAL = "keyframe_interval_sec"
         const val KEY_TARGET_FPS = "target_fps"
         const val KEY_MIN_FPS_MATCH = "min_fps_match_target"
@@ -33,6 +35,27 @@ class DroidCamSettings(context: Context) {
     }
 
     // Video Options
+    var targetResolutionWidth: Int
+        get() = prefs.getInt(KEY_TARGET_RES_WIDTH, 1920)
+        set(value) = prefs.edit().putInt(KEY_TARGET_RES_WIDTH, value).apply()
+
+    var targetResolutionHeight: Int
+        get() = prefs.getInt(KEY_TARGET_RES_HEIGHT, 1080)
+        set(value) = prefs.edit().putInt(KEY_TARGET_RES_HEIGHT, value).apply()
+
+    fun getResolutionLabel(): String {
+        val w = targetResolutionWidth
+        val h = targetResolutionHeight
+        return when {
+            w >= 3840 || h >= 2160 -> "4K UHD (${w}x${h})"
+            w >= 2560 || h >= 1440 -> "1440p QHD (${w}x${h})"
+            w >= 1920 || h >= 1080 -> "1080p FHD (${w}x${h})"
+            w >= 1280 || h >= 720  -> "720p HD (${w}x${h})"
+            w >= 640 && h >= 480   -> "480p SD (${w}x${h})"
+            else -> "${w}x${h}"
+        }
+    }
+
     var targetBitrateKbps: Int
         get() = prefs.getInt(KEY_TARGET_BITRATE, 4000)
         set(value) = prefs.edit().putInt(KEY_TARGET_BITRATE, value).apply()

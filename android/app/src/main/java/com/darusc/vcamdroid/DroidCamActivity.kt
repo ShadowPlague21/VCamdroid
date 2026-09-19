@@ -195,7 +195,7 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
             binding.btnSwitchLens.text = "Lens ($lensName)"
             if (droidCamServer.isStreaming) {
                 streamer.stopStream()
-                streamer.startStream("avc", 1920, 1080, settings.targetFps, isBackCamera)
+                streamer.startStream(streamer.currentFormat, streamer.currentWidth, streamer.currentHeight, settings.targetFps, isBackCamera)
             }
         }
 
@@ -542,6 +542,51 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
         val sheetBinding = DialogDroidcamSettingsBinding.inflate(layoutInflater)
         dialog.setContentView(sheetBinding.root)
 
+        // Resolutions
+        val curW = settings.targetResolutionWidth
+        val curH = settings.targetResolutionHeight
+        sheetBinding.txtCurrentResolution.text = "Target: ${settings.getResolutionLabel()}"
+
+        val resMap = mapOf(
+            sheetBinding.btnRes4k to Pair(3840, 2160),
+            sheetBinding.btnRes1440 to Pair(2560, 1440),
+            sheetBinding.btnRes1080 to Pair(1920, 1080),
+            sheetBinding.btnRes720 to Pair(1280, 720),
+            sheetBinding.btnRes480 to Pair(640, 480)
+        )
+
+        fun updateResolutionUI(selectedW: Int, selectedH: Int) {
+            settings.targetResolutionWidth = selectedW
+            settings.targetResolutionHeight = selectedH
+            sheetBinding.txtCurrentResolution.text = "Target: ${settings.getResolutionLabel()}"
+
+            resMap.forEach { (btn, res) ->
+                if (res.first == selectedW && res.second == selectedH) {
+                    btn.setBackgroundColor(Color.parseColor("#00E676"))
+                    btn.setTextColor(Color.BLACK)
+                } else {
+                    btn.setBackgroundColor(Color.parseColor("#2E303E"))
+                    btn.setTextColor(Color.WHITE)
+                }
+            }
+
+            if (droidCamServer.isStreaming) {
+                streamer.stopStream()
+                streamer.startStream(streamer.currentFormat, selectedW, selectedH, settings.targetFps, isBackCamera)
+                val mode = if (isUsbConnection) "USB" else "Wi-Fi"
+                binding.txtSubStatus.text = "OBS Active ($mode): ${selectedW}x${selectedH} ${streamer.currentFormat} @ ${settings.targetFps}fps"
+            }
+        }
+        updateResolutionUI(curW, curH)
+
+        resMap.forEach { (btn, res) ->
+            btn.setOnClickListener { updateResolutionUI(res.first, res.second) }
+        }
+
+        sheetBinding.btnProbeResolutions.setOnClickListener {
+            showCameraProbeDialog()
+        }
+
         // Bitrates
         val currentKbps = settings.targetBitrateKbps
         sheetBinding.txtCurrentBitrate.text = "Target Bitrate: ${currentKbps / 1000.0} Mbps (CBR)"
@@ -659,6 +704,50 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
         dialog.show()
     }
 
+    private fun showCameraProbeDialog() {
+        val (backRes, frontRes) = com.darusc.vcamdroid.video.queryDeviceResolutions(this)
+        val items = mutableListOf<String>()
+        val resList = mutableListOf<Pair<Int, Int>>()
+
+        items.add("--- REAR CAMERA RESOLUTIONS ---")
+        resList.add(Pair(0, 0))
+        for (r in backRes) {
+            val aspect = String.format("%.2f:1", r.first.toFloat() / r.second.toFloat())
+            items.add("Back: ${r.first} x ${r.second} ($aspect)")
+            resList.add(r)
+        }
+
+        items.add("--- FRONT CAMERA RESOLUTIONS ---")
+        resList.add(Pair(0, 0))
+        for (r in frontRes) {
+            val aspect = String.format("%.2f:1", r.first.toFloat() / r.second.toFloat())
+            items.add("Front: ${r.first} x ${r.second} ($aspect)")
+            resList.add(r)
+        }
+
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Camera Hardware Resolution Probe")
+            .setItems(items.toTypedArray()) { dialog, which ->
+                val selected = resList[which]
+                if (selected.first > 0 && selected.second > 0) {
+                    settings.targetResolutionWidth = selected.first
+                    settings.targetResolutionHeight = selected.second
+                    if (droidCamServer.isStreaming) {
+                        streamer.stopStream()
+                        streamer.startStream(streamer.currentFormat, selected.first, selected.second, settings.targetFps, isBackCamera)
+                        val mode = if (isUsbConnection) "USB" else "Wi-Fi"
+                        binding.txtSubStatus.text = "OBS Active ($mode): ${selected.first}x${selected.second} ${streamer.currentFormat} @ ${settings.targetFps}fps"
+                    } else {
+                        updateConnectionPill()
+                    }
+                    android.widget.Toast.makeText(this, "Target resolution set to ${selected.first}x${selected.second}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                dialog.dismiss()
+            }
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
     private fun toggleDimMode(enable: Boolean) {
         isDimMode = enable
         val lp = window.attributes
@@ -675,7 +764,7 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
     private fun updateConnectionPill() {
         val ip = getLocalIpAddress() ?: "Wi-Fi Disconnected"
         binding.txtConnectionPill.text = "$ip : ${settings.port}"
-        binding.txtSubStatus.text = "Wi-Fi LAN & USB ADB Forward (127.0.0.1:${settings.port})"
+        binding.txtSubStatus.text = "Wi-Fi LAN & USB ADB Forward (127.0.0.1:${settings.port}) • ${settings.targetResolutionWidth}x${settings.targetResolutionHeight}"
     }
 
     private fun getLocalIpAddress(): String? {
@@ -722,7 +811,7 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
 
     override fun onVideoStreamStopped() {
         runOnUiThread {
-            binding.txtSubStatus.text = "Ready for OBS Studio (Wi-Fi & USB ADB)"
+            binding.txtSubStatus.text = "Ready for OBS Studio • Standby: ${settings.getResolutionLabel()}"
             binding.txtSubStatus.setTextColor(Color.parseColor("#9E9E9E"))
             updateTallyBadge("idle")
         }
@@ -754,7 +843,7 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
         isUsbConnection = false
         runOnUiThread {
             updateConnectionPill()
-            binding.txtSubStatus.text = "Ready for OBS Studio (Wi-Fi & USB ADB)"
+            binding.txtSubStatus.text = "Ready for OBS Studio • Standby: ${settings.getResolutionLabel()}"
             binding.txtSubStatus.setTextColor(Color.parseColor("#9E9E9E"))
         }
     }

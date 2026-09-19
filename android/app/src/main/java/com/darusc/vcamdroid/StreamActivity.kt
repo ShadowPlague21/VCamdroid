@@ -113,9 +113,12 @@ class StreamActivity : AppCompatActivity(), SurfaceHolder.Callback, ConnectionMa
                 streamer.switchCamera()
             }
             PacketType.RESOLUTION -> {
-                val width = (buffer[1].toInt() and 0xFF) or (buffer[2].toInt() shl 8)
-                val height = (buffer[3].toInt() and 0xFF) or (buffer[4].toInt() shl 8)
+                val width = (buffer[1].toInt() and 0xFF) or ((buffer[2].toInt() and 0xFF) shl 8)
+                val height = (buffer[3].toInt() and 0xFF) or ((buffer[4].toInt() and 0xFF) shl 8)
                 streamer.setResolution(width, height)
+                runOnUiThread {
+                    Toast.makeText(this, "Resolution changed to ${width}x${height}", Toast.LENGTH_SHORT).show()
+                }
             }
             PacketType.ROTATION -> {
                 val degrees = buffer[1].toInt();

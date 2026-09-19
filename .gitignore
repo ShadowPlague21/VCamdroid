@@ -5,3 +5,8 @@ windows/ARM64/
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+
+# UI screenshots / local mockups - NEVER commit to git
+/ui_screenshots/
+ui_screenshots/
+*.png

@@ -44,7 +44,7 @@ class ConnectionManager private constructor() : Connection.Listener {
     }
 
     val localIpAddress: String
-        get() = tcpConn!!.localIpAddress
+        get() = tcpConn?.localIpAddress ?: "127.0.0.1"
 
     private var connectionStateCallback: ConnectionStateCallback? = null
     private var onBytesReceivedCallback: ((buffer: ByteArray, bytes: Int) -> Unit)? = null

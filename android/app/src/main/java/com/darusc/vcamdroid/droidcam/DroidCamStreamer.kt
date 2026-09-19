@@ -39,9 +39,16 @@ class DroidCamStreamer(
     var isStreaming = false
         private set
 
-    private var currentWidth = 1920
-    private var currentHeight = 1080
+    var currentWidth = 1920
+        private set
+    var currentHeight = 1080
+        private set
+    var currentFormat = "avc"
+        private set
     var isBackCamera = true
+        private set
+
+    var supportedResolutions: List<Pair<Int, Int>> = emptyList()
         private set
 
     // Live Camera Controls State
@@ -101,6 +108,8 @@ class DroidCamStreamer(
     var onCapabilitiesChanged: (() -> Unit)? = null
 
     init {
+        currentWidth = settings.targetResolutionWidth
+        currentHeight = settings.targetResolutionHeight
         currentZoom = settings.lastZoomFactor
         currentExposureCompensation = settings.lastExposureCompensation
         currentAwbMode = settings.lastAwbMode
@@ -127,6 +136,7 @@ class DroidCamStreamer(
 
         currentWidth = width
         currentHeight = height
+        currentFormat = format
         isBackCamera = facingBack
 
         startBackgroundThread()
@@ -500,6 +510,19 @@ class DroidCamStreamer(
 
         currentZoom = currentZoom.coerceIn(minZoomFactor, maxZoomFactor)
         currentExposureCompensation = currentExposureCompensation.coerceIn(minExposureCompensation, maxExposureCompensation)
+
+        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        if (map != null) {
+            val rawSizes = mutableSetOf<android.util.Size>()
+            map.getOutputSizes(MediaCodec::class.java)?.let { rawSizes.addAll(it) }
+            map.getOutputSizes(android.graphics.SurfaceTexture::class.java)?.let { rawSizes.addAll(it) }
+            map.getOutputSizes(android.media.MediaRecorder::class.java)?.let { rawSizes.addAll(it) }
+            map.getOutputSizes(android.graphics.ImageFormat.YUV_420_888)?.let { rawSizes.addAll(it) }
+
+            supportedResolutions = rawSizes.map { size ->
+                Pair(maxOf(size.width, size.height), minOf(size.width, size.height))
+            }.distinct().sortedByDescending { it.first * it.second }
+        }
 
         onCapabilitiesChanged?.invoke()
     }
