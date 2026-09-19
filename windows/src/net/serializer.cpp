@@ -69,35 +69,50 @@ namespace Serializer
 		outTotalSize = 0;
 		if (!bytes || available < 2) return false;
 
+		// Maximum sanity limit for entire descriptor payload
+		constexpr size_t MAX_DESCRIPTOR_SIZE = 65536; // 64 KB
+		if (available > MAX_DESCRIPTOR_SIZE) return false;
+
+		constexpr uint16_t MAX_NAME_LEN = 256;
+		constexpr uint16_t MAX_URL_LEN = 512;
+		constexpr uint16_t MAX_RES_COUNT = 128;
+		constexpr uint16_t MAX_FILTER_COUNT = 256;
+		constexpr uint16_t MAX_FILTER_NAME_LEN = 256;
+
 		size_t offset = 0;
 
 		// 1. Name
 		if (offset + 2 > available) return false;
 		uint16_t nameLen = (static_cast<uint16_t>(bytes[offset]) << 8) | bytes[offset + 1];
+		if (nameLen > MAX_NAME_LEN) return false;
 		offset += 2 + nameLen;
 		if (offset > available) return false;
 
 		// 2. RTSP URL
 		if (offset + 2 > available) return false;
 		uint16_t urlLen = (static_cast<uint16_t>(bytes[offset]) << 8) | bytes[offset + 1];
+		if (urlLen > MAX_URL_LEN) return false;
 		offset += 2 + urlLen;
 		if (offset > available) return false;
 
 		// 3. Front resolutions
 		if (offset + 2 > available) return false;
 		uint16_t frontCount = (static_cast<uint16_t>(bytes[offset]) << 8) | bytes[offset + 1];
+		if (frontCount > MAX_RES_COUNT) return false;
 		offset += 2 + (static_cast<size_t>(frontCount) * 4);
 		if (offset > available) return false;
 
 		// 4. Back resolutions
 		if (offset + 2 > available) return false;
 		uint16_t backCount = (static_cast<uint16_t>(bytes[offset]) << 8) | bytes[offset + 1];
+		if (backCount > MAX_RES_COUNT) return false;
 		offset += 2 + (static_cast<size_t>(backCount) * 4);
 		if (offset > available) return false;
 
 		// 5. Filters
 		if (offset + 2 > available) return false;
 		uint16_t filterCount = (static_cast<uint16_t>(bytes[offset]) << 8) | bytes[offset + 1];
+		if (filterCount > MAX_FILTER_COUNT) return false;
 		offset += 2;
 		if (offset > available) return false;
 
@@ -105,9 +120,12 @@ namespace Serializer
 		{
 			if (offset + 2 > available) return false;
 			uint16_t filterNameLen = (static_cast<uint16_t>(bytes[offset]) << 8) | bytes[offset + 1];
+			if (filterNameLen > MAX_FILTER_NAME_LEN) return false;
 			offset += 2 + filterNameLen + 1; // 2 len + name bytes + 1 category
 			if (offset > available) return false;
 		}
+
+		if (offset > MAX_DESCRIPTOR_SIZE) return false;
 
 		outTotalSize = offset;
 		return true;

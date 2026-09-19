@@ -157,6 +157,14 @@ void Server::ReadDeviceDescriptor(
 		{
 			bufferPtr->insert(bufferPtr->end(), chunkPtr->begin(), chunkPtr->begin() + bytesRead);
 
+			if (bufferPtr->size() > 65536)
+			{
+				logger << "[SERVER] Device descriptor exceeded maximum allowed size (64KB), dropping connection" << std::endl;
+				asio::error_code closeEc;
+				sockPtr->close(closeEc);
+				return;
+			}
+
 			size_t totalDescriptorSize = 0;
 			if (Serializer::IsDeviceDescriptorComplete(bufferPtr->data(), bufferPtr->size(), totalDescriptorSize))
 			{
