@@ -70,6 +70,8 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     private var updateFocusDisplayFn: ((String) -> Unit)? = null
     private var setFocusSegmentFn: ((Button) -> Unit)? = null
     private var activeSettingsBinding: DialogDroidcamSettingsBinding? = null
+    private var activeSettingsUiUpdater: ((Int, Int, Int) -> Unit)? = null
+    private var currentTallyState: String = "idle"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -432,37 +434,38 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
     }
 
+    private fun applyLensSwitch(isBack: Boolean) {
+        isBackCamera = isBack
+        val title = if (isBack) "Rear Sensor (Wide)" else "Front Sensor"
+        val pill = if (isBack) "REAR" else "FRONT"
+        binding.txtLensValue.text = title
+        binding.valPillLens.text = pill
+        if (isBack) {
+            binding.btnLensBack.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+            binding.btnLensFront.setTextColor(Color.WHITE)
+        } else {
+            binding.btnLensFront.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+            binding.btnLensBack.setTextColor(Color.WHITE)
+        }
+        val (optW, optH) = streamer.getOptimalPreviewSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
+        val st = binding.cameraPreview.surfaceTexture
+        if (st != null) {
+            st.setDefaultBufferSize(optW, optH)
+            val newSurface = Surface(st)
+            previewSurface?.release()
+            previewSurface = newSurface
+            streamer.setPreviewSurface(newSurface)
+        }
+        adjustPreviewAspectRatio(optW, optH)
+        streamer.switchLens(isBack)
+    }
+
     private fun setupOpticalControls() {
         // --- 1. Lens Switch Overlay ---
         binding.btnSwitchLens.setOnClickListener {
             showCard(binding.lensCard, binding.btnSwitchLens)
         }
 
-        fun applyLensSwitch(isBack: Boolean) {
-            isBackCamera = isBack
-            val title = if (isBack) "Rear Sensor (Wide)" else "Front Sensor"
-            val pill = if (isBack) "REAR" else "FRONT"
-            binding.txtLensValue.text = title
-            binding.valPillLens.text = pill
-            if (isBack) {
-                binding.btnLensBack.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
-                binding.btnLensFront.setTextColor(Color.WHITE)
-            } else {
-                binding.btnLensFront.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
-                binding.btnLensBack.setTextColor(Color.WHITE)
-            }
-            val (optW, optH) = streamer.getOptimalPreviewSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
-            val st = binding.cameraPreview.surfaceTexture
-            if (st != null) {
-                st.setDefaultBufferSize(optW, optH)
-                val newSurface = Surface(st)
-                previewSurface?.release()
-                previewSurface = newSurface
-                streamer.setPreviewSurface(newSurface)
-            }
-            adjustPreviewAspectRatio(optW, optH)
-            streamer.switchLens(isBack)
-        }
         binding.btnLensBack.setOnClickListener { applyLensSwitch(true) }
         binding.btnLensFront.setOnClickListener { applyLensSwitch(false) }
 
@@ -1041,6 +1044,11 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         updateResolutionUI(curW, curH)
         updateFpsUI(settings.targetFps)
 
+        activeSettingsUiUpdater = { selectedW, selectedH, selectedFps ->
+            updateResolutionUI(selectedW, selectedH)
+            updateFpsUI(selectedFps)
+        }
+
         resMap.forEach { (btn, res) ->
             btn.setOnClickListener {
                 val (newW, newH) = res
@@ -1188,6 +1196,10 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
         sheetBinding.btnCloseSettings.setOnClickListener {
             dialog.dismiss()
+        }
+
+        dialog.setOnDismissListener {
+            activeSettingsUiUpdater = null
         }
 
         dialog.show()
@@ -1581,6 +1593,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             streamer.startLocalPreview(isBackCamera)
         }
         updateConnectionPill()
+        activeSettingsUiUpdater?.invoke(validW, validH, settings.targetFps)
     }
 
     private fun adjustPreviewAspectRatio(streamWidth: Int, streamHeight: Int) {
@@ -1668,9 +1681,67 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
 
     private var isUsbConnection = false
 
+    override fun getSessionState(): DroidCamServer.SessionState {
+        return DroidCamServer.SessionState(
+            status = if (droidCamServer.isStreaming) "streaming" else "idle",
+            isStreaming = droidCamServer.isStreaming,
+            width = settings.targetResolutionWidth,
+            height = settings.targetResolutionHeight,
+            fps = settings.targetFps,
+            format = streamer.currentFormat,
+            lens = if (isBackCamera) "back" else "front",
+            tally = currentTallyState
+        )
+    }
+
+    override fun onSessionUpdateRequested(
+        width: Int?,
+        height: Int?,
+        fps: Int?,
+        format: String?,
+        lens: String?
+    ): Boolean {
+        runOnUiThread {
+            var changed = false
+            if (lens != null) {
+                val wantBack = lens.equals("back", ignoreCase = true) || lens.equals("rear", ignoreCase = true)
+                if (wantBack != isBackCamera) {
+                    applyLensSwitch(wantBack)
+                    changed = true
+                }
+            }
+            if (fps != null) {
+                val curW = width ?: settings.targetResolutionWidth
+                val curH = height ?: settings.targetResolutionHeight
+                val maxFps = ResolutionFpsMatrix.getMaxFpsForResolution(this, curW, curH, isBackCamera)
+                val clampedFps = fps.coerceIn(1, maxFps)
+                if (settings.targetFps != clampedFps) {
+                    settings.targetFps = clampedFps
+                    changed = true
+                }
+            }
+            if (width != null && height != null) {
+                val targetFmt = format ?: streamer.currentFormat
+                applyResolutionChange(width, height, targetFmt, forceStartStream = droidCamServer.isStreaming)
+                changed = true
+            } else if (format != null && !format.equals(streamer.currentFormat, ignoreCase = true)) {
+                applyResolutionChange(settings.targetResolutionWidth, settings.targetResolutionHeight, format, forceStartStream = droidCamServer.isStreaming)
+                changed = true
+            }
+
+            if (changed) {
+                Toast.makeText(this, "OBS synced: ${settings.targetResolutionWidth}×${settings.targetResolutionHeight} @ ${settings.targetFps}fps", Toast.LENGTH_SHORT).show()
+                activeSettingsUiUpdater?.invoke(settings.targetResolutionWidth, settings.targetResolutionHeight, settings.targetFps)
+                updateConnectionPill()
+            }
+        }
+        return true
+    }
+
     override fun onVideoStreamStarted(format: String, width: Int, height: Int) {
         runOnUiThread {
             applyResolutionChange(width, height, format, forceStartStream = true)
+            activeSettingsUiUpdater?.invoke(width, height, settings.targetFps)
             updateTallyBadge("program")
             streamStartTimeMs = SystemClock.elapsedRealtime()
             durationHandler.post(durationRunnable)
@@ -1690,6 +1761,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
     }
 
     override fun onTallyChanged(tallyState: String) {
+        currentTallyState = tallyState
         runOnUiThread {
             updateTallyBadge(tallyState)
         }

@@ -20,12 +20,25 @@ class DroidCamServer(
     private val listener: Listener
 ) {
 
+    data class SessionState(
+        val status: String,
+        val isStreaming: Boolean,
+        val width: Int,
+        val height: Int,
+        val fps: Int,
+        val format: String,
+        val lens: String,
+        val tally: String
+    )
+
     interface Listener {
         fun onVideoStreamStarted(format: String, width: Int, height: Int)
         fun onVideoStreamStopped()
         fun onTallyChanged(tallyState: String) // "program", "preview", "idle"
         fun onClientConnected(remoteAddress: String)
         fun onClientDisconnected()
+        fun getSessionState(): SessionState
+        fun onSessionUpdateRequested(width: Int?, height: Int?, fps: Int?, format: String?, lens: String?): Boolean
     }
 
     private var serverSocket: ServerSocket? = null
@@ -126,6 +139,71 @@ class DroidCamServer(
                 firstLine.startsWith("GET /capabilities") || firstLine.startsWith("GET /v1/capabilities") || firstLine.startsWith("GET /hal") -> {
                     val report = com.darusc.vcamdroid.capabilities.CameraCapabilityProbe.probeSync(context)
                     val body = report.toJson()
+                    val bodyBytes = body.toByteArray(Charsets.UTF_8)
+                    val response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bodyBytes.size}\r\nConnection: close\r\n\r\n"
+                    socket.getOutputStream().write(response.toByteArray())
+                    socket.getOutputStream().write(bodyBytes)
+                    socket.getOutputStream().flush()
+                    socket.close()
+                }
+
+                firstLine.startsWith("GET /v1/session") -> {
+                    val state = listener.getSessionState()
+                    val battery = getBatteryPercentage()
+                    val body = """{"status":"${state.status}","streaming":${state.isStreaming},"width":${state.width},"height":${state.height},"fps":${state.fps},"format":"${state.format}","lens":"${state.lens}","battery":$battery,"tally":"${state.tally}"}"""
+                    val bodyBytes = body.toByteArray(Charsets.UTF_8)
+                    val response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bodyBytes.size}\r\nConnection: close\r\n\r\n"
+                    socket.getOutputStream().write(response.toByteArray())
+                    socket.getOutputStream().write(bodyBytes)
+                    socket.getOutputStream().flush()
+                    socket.close()
+                }
+
+                firstLine.startsWith("PUT /v1/session") || firstLine.startsWith("POST /v1/session") -> {
+                    // Pattern: PUT /v1/session?width=1920&height=1080&fps=30&lens=back&format=avc
+                    var width: Int? = null
+                    var height: Int? = null
+                    var fps: Int? = null
+                    var format: String? = null
+                    var lens: String? = null
+
+                    val parts = firstLine.split(" ")
+                    if (parts.size >= 2) {
+                        val path = parts[1]
+                        val queryIdx = path.indexOf('?')
+                        val query = if (queryIdx != -1) path.substring(queryIdx + 1) else ""
+                        if (query.isNotEmpty()) {
+                            query.split("&").forEach { param ->
+                                val kv = param.split("=")
+                                if (kv.size == 2) {
+                                    val key = kv[0].trim().lowercase()
+                                    val value = kv[1].trim()
+                                    when (key) {
+                                        "width", "w" -> width = value.toIntOrNull()
+                                        "height", "h" -> height = value.toIntOrNull()
+                                        "fps" -> fps = value.toIntOrNull()
+                                        "format", "fmt" -> format = value.lowercase()
+                                        "lens", "camera" -> lens = value.lowercase()
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Also check if dimensions were passed as "1920x1080" anywhere in path
+                    if (width == null && height == null && parts.size >= 2) {
+                        val resRegex = Regex("""(\d{3,4})x(\d{3,4})""", RegexOption.IGNORE_CASE)
+                        val match = resRegex.find(parts[1])
+                        if (match != null) {
+                            width = match.groupValues[1].toIntOrNull()
+                            height = match.groupValues[2].toIntOrNull()
+                        }
+                    }
+
+                    val success = listener.onSessionUpdateRequested(width, height, fps, format, lens)
+                    val state = listener.getSessionState()
+                    val battery = getBatteryPercentage()
+                    val body = """{"status":"${state.status}","success":$success,"streaming":${state.isStreaming},"width":${state.width},"height":${state.height},"fps":${state.fps},"format":"${state.format}","lens":"${state.lens}","battery":$battery,"tally":"${state.tally}"}"""
                     val bodyBytes = body.toByteArray(Charsets.UTF_8)
                     val response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bodyBytes.size}\r\nConnection: close\r\n\r\n"
                     socket.getOutputStream().write(response.toByteArray())
