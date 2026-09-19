@@ -24,18 +24,25 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Cache vcpkg installed
+      - name: Restore vcpkg cache
         id: cache-vcpkg
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: C:\vcpkg\installed
-          key: ${{ runner.os }}-vcpkg-deps-v2
+          key: ${{ runner.os }}-vcpkg-deps-v3
 
       - name: Install vcpkg dependencies
         if: steps.cache-vcpkg.outputs.cache-hit != 'true'
         run: |
           vcpkg integrate install
           vcpkg install asio:x64-windows wxwidgets:x64-windows
+
+      - name: Save vcpkg cache
+        if: steps.cache-vcpkg.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: C:\vcpkg\installed
+          key: ${{ runner.os }}-vcpkg-deps-v3
 
       - name: Integrate vcpkg
         run: |
@@ -69,12 +76,19 @@ jobs:
 
       - name: Build VCamdroid Client
         shell: pwsh
+        env:
+          VCPKG_ROOT: C:\vcpkg
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          msbuild windows/VCamdroid.sln /p:Configuration=Release /p:Platform=x64 /fl /flp:logfile=msbuild_vcamdroid.log;verbosity=normal
+          msbuild windows/VCamdroid.sln /p:Configuration=Release /p:Platform=x64 /p:VCPKG_ROOT=C:\vcpkg /p:VcpkgRoot=C:\vcpkg /fl /flp:logfile=msbuild_vcamdroid.log;verbosity=normal
           if ($LASTEXITCODE -ne 0) {
             Write-Host "=== MSBUILD FAILURE DIAGNOSTICS ==="
-            Get-Content msbuild_vcamdroid.log | Select-String -Pattern ": error " | Select-Object -First 40 | ForEach-Object { Write-Host $_.Line }
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### MSBuild Failure Diagnostics"
+            $errs = Get-Content msbuild_vcamdroid.log | Select-String -Pattern ": error " | Select-Object -First 40
+            foreach ($e in $errs) {
+              Write-Host "::error::$($e.Line)"
+              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- $($e.Line)"
+            }
             exit 1
           }
 
