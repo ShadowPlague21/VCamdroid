@@ -154,40 +154,6 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             showGestureFeedbackToast(if (newState) "🤖 AI Tracking Enabled" else "⏸️ AI Tracking Paused")
         }
 
-        // Framing Mode (16:9 Landscape vs 9:16 Vertical)
-        fun updateFramingModeUI(mode: AiTrackerEngine.FramingMode) {
-            binding.btnFramingMode.text = if (mode == AiTrackerEngine.FramingMode.PORTRAIT_9_16) "9:16" else "16:9"
-            val label = if (mode == AiTrackerEngine.FramingMode.PORTRAIT_9_16) "Vertical 9:16 (Shorts/Reels)" else "Landscape 16:9"
-            showGestureFeedbackToast("📐 Framing: $label")
-        }
-
-        binding.btnFramingMode.text = settings.aiFramingMode
-        binding.btnFramingMode.setOnClickListener {
-            val isNow916 = settings.aiFramingMode != "9:16"
-            val newModeStr = if (isNow916) "9:16" else "16:9"
-            settings.aiFramingMode = newModeStr
-            val modeEnum = if (isNow916) AiTrackerEngine.FramingMode.PORTRAIT_9_16 else AiTrackerEngine.FramingMode.LANDSCAPE_16_9
-            streamer.setFramingMode(modeEnum)
-            updateFramingModeUI(modeEnum)
-
-            val targetW = if (isNow916) 1080 else 1920
-            val targetH = if (isNow916) 1920 else 1080
-            settings.targetResolutionWidth = targetW
-            settings.targetResolutionHeight = targetH
-
-            adjustPreviewAspectRatio(targetW, targetH)
-            binding.cameraPreview.surfaceTexture?.setDefaultBufferSize(targetW, targetH)
-
-            if (droidCamServer.isStreaming) {
-                val currentFmt = streamer.currentFormat
-                streamer.stopStream()
-                streamer.startStream(currentFmt, targetW, targetH, settings.targetFps, isBackCamera)
-                val mode = if (isUsbConnection) "USB" else "Wi-Fi"
-                binding.txtSubStatus.text = "OBS Active ($mode): ${targetW}x${targetH} $currentFmt @ ${settings.targetFps}fps"
-            } else {
-                updateConnectionPill()
-            }
-        }
 
         // Callbacks for Gestures and Face Tracking
         streamer.onAiTrackingStateChanged = { active ->

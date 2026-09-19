@@ -63,6 +63,19 @@
   * **Integrated Torch / Flashlight:** One-tap toggle for device LED illumination.
   * **Lens Switching:** Seamlessly switch between rear and front-facing camera sensors.
 
+* **AI Smart Tracking & Virtual Gimbal (ePTZ):**
+  * **On-Device BlazeFace Tracking:** Hyper-efficient, on-device face tracking running at 60 FPS visual servoing across the sensor active array without cloud dependencies or latency.
+  * **SmoothDamp Bezier Physics:** Critically damped harmonic oscillator easing mimics the physics of a motorized gimbal, delivering cinematic ease-in and ease-out camera movements with zero overshoot or stepping.
+  * **Hands-Free Gesture Recognition:**
+    * **Open Palm:** Toggle AI face tracking on or off hands-free from across the room.
+    * **Pinch Gesture:** Dynamically zoom in and out with real-time visual HUD toast feedback.
+  * **Zero-Latency In-Memory Pipeline:** Decoupled ML inference pipeline releasing hardware camera buffers in `<0.3ms` to eliminate HAL buffer starvation, dropped frames, and AE exposure flicker.
+
+* **AutoFit True-Aspect Preview & Control Center:**
+  * **True 1:1 Aspect Ratio:** `AutoFitTextureView` ensures the in-app preview precisely matches the broadcast stream geometry with 1:1 square pixels, completely preventing elongation or distortion.
+  * **Studio Control Center:** Granular modal controls for output resolution (1080p FHD, 1440p QHD, 4K 2160p), target bitrate (2.5 - 16 Mbps CBR), sensor timing / FPS (24, 30, 48, 60 FPS), and power-line anti-flicker (Auto, 50 Hz, 60 Hz, Off).
+  * **Optional 180° Flip:** Convenient toggle in the Studio Control Center to flip the phone preview 180° when mounted upside down (OFF by default).
+
 * **OBS Studio & DroidCam OBS Integration:**
   * **DroidCam OBS Drop-in Replacement:** Fully compatible with the popular DroidCam OBS plugin inside OBS Studio. Connects directly as a DroidCam OBS source on port `4747` without needing any client software modifications.
   * **Hardware Acceleration:** Hardware-accelerated H.264 (AVC) and H.265 (HEVC) encoding up to 1080p at 60 frames per second.
@@ -103,7 +116,10 @@ The in-app studio interface provides a professional heads-up display (HUD):
 | **EV** | Auto-exposure compensation bias | Device-supported steps | Yes (Tap value) |
 | **Focus** | Lens focal distance puller | Macro (0.0) - Infinity (1.0) / Auto | Yes (Tap value) |
 | **WB** | White balance color temperature presets | Auto, Daylight, Cloudy, Fluorescent, Incandescent | Presets |
+| **AI Track** | Visual servoing virtual gimbal tracking subject's face | On / Off | One-tap / Palm Gesture |
+| **Pinch Zoom** | Hands-free gesture-driven camera zoom | 1.0x - 4.0x | Pinch gesture |
 | **Torch** | Camera LED assist light | On / Off | One-tap |
+| **Settings** | Studio Control Center (Bitrate, FPS, Anti-flicker, 180° flip) | Full studio suite | One-tap (Wrench icon) |
 | **Audio** | AAC microphone audio stream | On / Off | One-tap |
 
 ---
@@ -172,8 +188,11 @@ To maximize battery life and completely eliminate screen burn-in during long liv
 ```mermaid
 flowchart LR
     subgraph Android["Android Device"]
-        C2["Camera2 API"] --> GL["OpenGL ES / Texture Pipeline"]
-        GL --> MC["Hardware MediaCodec: H.264 / HEVC"]
+        C2["Camera2 Sensor Active Array"] --> GL["AutoFitTextureView (1:1 Preview)"]
+        C2 --> ML["BlazeFace & Gestures (320x240 YUV, <0.3ms Return)"]
+        ML --> EPTZ["Virtual Gimbal (SmoothDamp Servoing)"]
+        EPTZ --> C2
+        C2 --> MC["Hardware MediaCodec: H.264 / HEVC 60 FPS"]
         MIC["AudioRecord"] --> AAC["MediaCodec AAC"]
         MC --> DCS["OBS Streaming Server :4747 (DroidCam OBS Protocol)"]
         AAC --> DCS

@@ -29,7 +29,6 @@ class DroidCamSettings(context: Context) {
 
         // AI Tracking and Gesture Preferences
         const val KEY_AI_TRACKING = "ai_tracking_enabled"
-        const val KEY_AI_FRAMING_MODE = "ai_framing_mode" // "16:9" or "9:16"
         const val KEY_GESTURES_ENABLED = "ai_gestures_enabled"
 
         const val KEY_ROTATE_PREVIEW_180 = "rotate_preview_180"
@@ -49,10 +48,6 @@ class DroidCamSettings(context: Context) {
     var isAiTrackingEnabled: Boolean
         get() = prefs.getBoolean(KEY_AI_TRACKING, true)
         set(value) = prefs.edit().putBoolean(KEY_AI_TRACKING, value).apply()
-
-    var aiFramingMode: String
-        get() = prefs.getString(KEY_AI_FRAMING_MODE, "16:9") ?: "16:9"
-        set(value) = prefs.edit().putString(KEY_AI_FRAMING_MODE, value).apply()
 
     var isGesturesEnabled: Boolean
         get() = prefs.getBoolean(KEY_GESTURES_ENABLED, true)

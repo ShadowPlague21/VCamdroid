@@ -88,18 +88,6 @@
                 android:paddingHorizontal="10dp"
                 android:layout_marginEnd="6dp" />
 
-            <!-- Framing Mode Toggle Button -->
-            <Button
-                android:id="@+id/btnFramingMode"
-                android:layout_width="wrap_content"
-                android:layout_height="34dp"
-                android:text="16:9"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#2E303E"
-                android:paddingHorizontal="10dp"
-                android:layout_marginEnd="6dp" />
 
             <!-- AMOLED Dim Mode Toggle Button -->
             <ImageButton

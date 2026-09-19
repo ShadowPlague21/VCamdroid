@@ -21,13 +21,6 @@ class AiTrackerEngine(
     private val onFaceDetected: (hasFace: Boolean, faceBounds: RectF?) -> Unit
 ) {
 
-    enum class FramingMode {
-        LANDSCAPE_16_9,
-        PORTRAIT_9_16
-    }
-
-    private var framingMode = FramingMode.LANDSCAPE_16_9
-
     private var faceDetector: FaceDetector? = null
     private var isFaceDetectorBusy = false
     private var lastInferenceTimeMs = 0L
@@ -97,13 +90,6 @@ class AiTrackerEngine(
         resetToDefaultCrop()
     }
 
-    fun setFramingMode(mode: FramingMode) {
-        framingMode = mode
-        resetToDefaultCrop()
-        Logger.log("AI_TRACKER", "Framing mode switched to: $mode")
-    }
-
-    fun getFramingMode(): FramingMode = framingMode
 
     fun setTrackingEnabled(enabled: Boolean) {
         isTrackingEnabled = enabled
@@ -330,20 +316,9 @@ class AiTrackerEngine(
 
     private fun getCropDimensions(): Pair<Float, Float> {
         val sW = sensorRect.width().toFloat()
-        val sH = sensorRect.height().toFloat()
-
-        return when (framingMode) {
-            FramingMode.LANDSCAPE_16_9 -> {
-                val w = (sW / userZoomFactor).coerceIn(1920f, sW)
-                val h = w * (9f / 16f)
-                Pair(w, h)
-            }
-            FramingMode.PORTRAIT_9_16 -> {
-                val h = (sH / userZoomFactor).coerceIn(1920f, sH)
-                val w = h * (9f / 16f)
-                Pair(w, h)
-            }
-        }
+        val w = (sW / userZoomFactor).coerceIn(1920f, sW)
+        val h = w * (9f / 16f)
+        return Pair(w, h)
     }
 
     private fun computeCropRect(centerX: Float, centerY: Float): Rect {

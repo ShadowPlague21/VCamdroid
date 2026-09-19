@@ -127,7 +127,6 @@ class DroidCamStreamer(
     var onAiTrackingStateChanged: ((Boolean) -> Unit)? = null
     var onAiFaceTrackingUpdate: ((Boolean, RectF?) -> Unit)? = null
     var onGestureFeedback: ((String) -> Unit)? = null
-    var onFramingModeChanged: ((AiTrackerEngine.FramingMode) -> Unit)? = null
 
     private var aiImageReader: ImageReader? = null
     private var aiThread: HandlerThread? = null
@@ -144,12 +143,6 @@ class DroidCamStreamer(
         currentAwbMode = settings.lastAwbMode
         currentAfMode = settings.lastAfMode
 
-        val framingMode = if (settings.aiFramingMode == "9:16") {
-            AiTrackerEngine.FramingMode.PORTRAIT_9_16
-        } else {
-            AiTrackerEngine.FramingMode.LANDSCAPE_16_9
-        }
-
         aiTrackerEngine = AiTrackerEngine(
             context,
             onCropRegionChanged = { cropRect ->
@@ -159,7 +152,6 @@ class DroidCamStreamer(
                 onAiFaceTrackingUpdate?.invoke(hasFace, bounds)
             }
         ).apply {
-            setFramingMode(framingMode)
             setTrackingEnabled(settings.isAiTrackingEnabled)
         }
 
@@ -307,22 +299,6 @@ class DroidCamStreamer(
         return newState
     }
 
-    fun setFramingMode(mode: AiTrackerEngine.FramingMode) {
-        settings.aiFramingMode = if (mode == AiTrackerEngine.FramingMode.PORTRAIT_9_16) "9:16" else "16:9"
-        aiTrackerEngine?.setFramingMode(mode)
-        onFramingModeChanged?.invoke(mode)
-    }
-
-    fun toggleFramingMode(): AiTrackerEngine.FramingMode {
-        val current = aiTrackerEngine?.getFramingMode() ?: AiTrackerEngine.FramingMode.LANDSCAPE_16_9
-        val next = if (current == AiTrackerEngine.FramingMode.LANDSCAPE_16_9) {
-            AiTrackerEngine.FramingMode.PORTRAIT_9_16
-        } else {
-            AiTrackerEngine.FramingMode.LANDSCAPE_16_9
-        }
-        setFramingMode(next)
-        return next
-    }
 
     private var lastHalUpdateTimeMs = 0L
     private var lastAppliedCropRect: Rect? = null
