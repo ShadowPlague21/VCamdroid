@@ -2,18 +2,29 @@ package com.darusc.vcamdroid.droidcam
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
 import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.YuvImage
 import android.hardware.camera2.*
 import android.hardware.camera2.params.MeteringRectangle
+import android.media.Image
+import android.media.ImageReader
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 import android.util.Range
 import android.view.Surface
+import com.darusc.vcamdroid.ai.AiTrackerEngine
+import com.darusc.vcamdroid.ai.GestureDetectorHelper
 import com.darusc.vcamdroid.util.Logger
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import kotlin.math.roundToInt
 
@@ -107,6 +118,22 @@ class DroidCamStreamer(
 
     var onCapabilitiesChanged: (() -> Unit)? = null
 
+    // AI Tracking & Virtual Gimbal (ePTZ)
+    var aiTrackerEngine: AiTrackerEngine? = null
+        private set
+    var gestureDetectorHelper: GestureDetectorHelper? = null
+        private set
+
+    var onAiTrackingStateChanged: ((Boolean) -> Unit)? = null
+    var onAiFaceTrackingUpdate: ((Boolean, RectF?) -> Unit)? = null
+    var onGestureFeedback: ((String) -> Unit)? = null
+    var onFramingModeChanged: ((AiTrackerEngine.FramingMode) -> Unit)? = null
+
+    private var aiImageReader: ImageReader? = null
+    private var aiThread: HandlerThread? = null
+    private var aiHandler: Handler? = null
+    private var lastGestureProcessTimeMs = 0L
+
     init {
         currentWidth = settings.targetResolutionWidth
         currentHeight = settings.targetResolutionHeight
@@ -114,6 +141,43 @@ class DroidCamStreamer(
         currentExposureCompensation = settings.lastExposureCompensation
         currentAwbMode = settings.lastAwbMode
         currentAfMode = settings.lastAfMode
+
+        val framingMode = if (settings.aiFramingMode == "9:16") {
+            AiTrackerEngine.FramingMode.PORTRAIT_9_16
+        } else {
+            AiTrackerEngine.FramingMode.LANDSCAPE_16_9
+        }
+
+        aiTrackerEngine = AiTrackerEngine(
+            context,
+            onCropRegionChanged = { cropRect ->
+                applyCropRegion(cropRect)
+            },
+            onFaceDetected = { hasFace, bounds ->
+                onAiFaceTrackingUpdate?.invoke(hasFace, bounds)
+            }
+        ).apply {
+            setFramingMode(framingMode)
+            setTrackingEnabled(settings.isAiTrackingEnabled)
+        }
+
+        if (settings.isGesturesEnabled) {
+            gestureDetectorHelper = GestureDetectorHelper(
+                context,
+                onTrackingToggled = { active ->
+                    settings.isAiTrackingEnabled = active
+                    aiTrackerEngine?.setTrackingEnabled(active)
+                    onAiTrackingStateChanged?.invoke(active)
+                },
+                onPinchZoom = { zoom ->
+                    aiTrackerEngine?.setUserZoom(zoom)
+                    setZoom(zoom)
+                },
+                onGestureFeedback = { msg ->
+                    onGestureFeedback?.invoke(msg)
+                }
+            )
+        }
     }
 
     fun setPreviewSurface(surface: Surface?) {
@@ -182,6 +246,11 @@ class DroidCamStreamer(
         encoderSurface?.release()
         encoderSurface = null
 
+        try {
+            aiImageReader?.close()
+        } catch (_: Exception) { }
+        aiImageReader = null
+
         stopBackgroundThread()
         Logger.log("DROIDCAM_STREAMER", "Streaming stopped")
     }
@@ -213,7 +282,53 @@ class DroidCamStreamer(
     fun setZoom(zoom: Float) {
         currentZoom = zoom.coerceIn(minZoomFactor, maxZoomFactor)
         settings.lastZoomFactor = currentZoom
+        aiTrackerEngine?.setUserZoom(currentZoom)
+        gestureDetectorHelper?.updateCurrentZoom(currentZoom)
         applyCaptureSettings()
+    }
+
+    // --- AI Tracking Controls ---
+
+    fun setAiTrackingEnabled(enabled: Boolean) {
+        settings.isAiTrackingEnabled = enabled
+        aiTrackerEngine?.setTrackingEnabled(enabled)
+        gestureDetectorHelper?.setTrackingActive(enabled)
+        onAiTrackingStateChanged?.invoke(enabled)
+        if (!enabled) {
+            applyCaptureSettings()
+        }
+    }
+
+    fun toggleAiTracking(): Boolean {
+        val newState = !(aiTrackerEngine?.isTrackingEnabled() ?: false)
+        setAiTrackingEnabled(newState)
+        return newState
+    }
+
+    fun setFramingMode(mode: AiTrackerEngine.FramingMode) {
+        settings.aiFramingMode = if (mode == AiTrackerEngine.FramingMode.PORTRAIT_9_16) "9:16" else "16:9"
+        aiTrackerEngine?.setFramingMode(mode)
+        onFramingModeChanged?.invoke(mode)
+    }
+
+    fun toggleFramingMode(): AiTrackerEngine.FramingMode {
+        val current = aiTrackerEngine?.getFramingMode() ?: AiTrackerEngine.FramingMode.LANDSCAPE_16_9
+        val next = if (current == AiTrackerEngine.FramingMode.LANDSCAPE_16_9) {
+            AiTrackerEngine.FramingMode.PORTRAIT_9_16
+        } else {
+            AiTrackerEngine.FramingMode.LANDSCAPE_16_9
+        }
+        setFramingMode(next)
+        return next
+    }
+
+    private fun applyCropRegion(cropRect: Rect) {
+        val session = captureSession ?: return
+        val builder = repeatingRequestBuilder ?: return
+        try {
+            builder.set(CaptureRequest.SCALER_CROP_REGION, cropRect)
+            session.setRepeatingRequest(builder.build(), captureCallback, cameraHandler)
+        } catch (_: Exception) { }
     }
 
     fun setExposureCompensation(value: Int) {
@@ -524,6 +639,11 @@ class DroidCamStreamer(
             }.distinct().sortedByDescending { it.first * it.second }
         }
 
+        val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+        if (sensorRect != null) {
+            aiTrackerEngine?.setSensorActiveArray(sensorRect)
+        }
+
         onCapabilitiesChanged?.invoke()
     }
 
@@ -556,6 +676,35 @@ class DroidCamStreamer(
         val surfaces = mutableListOf<Surface>()
         surfaces.add(encoderSurf)
         previewSurface?.takeIf { it.isValid }?.let { surfaces.add(it) }
+
+        // AI Tracking ImageReader (downscaled 320x240 for 3ms BlazeFace inference)
+        try {
+            aiImageReader?.close()
+        } catch (_: Exception) { }
+
+        val aiReader = ImageReader.newInstance(320, 240, ImageFormat.YUV_420_888, 2)
+        aiReader.setOnImageAvailableListener({ reader ->
+            val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            if (!isStreaming) {
+                img.close()
+                return@setOnImageAvailableListener
+            }
+
+            // Run gesture recognition at ~10 Hz (every 100ms)
+            val now = SystemClock.uptimeMillis()
+            if (settings.isGesturesEnabled && now - lastGestureProcessTimeMs > 100L) {
+                lastGestureProcessTimeMs = now
+                val bitmap = yuvImageToThumbnailBitmap(img)
+                if (bitmap != null) {
+                    gestureDetectorHelper?.processThumbnail(bitmap)
+                }
+            }
+
+            // Run face tracking at ~15 Hz (handles closing img internally)
+            aiTrackerEngine?.processImage(img, 90)
+        }, aiHandler)
+        aiImageReader = aiReader
+        surfaces.add(aiReader.surface)
 
         try {
             val builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
@@ -610,7 +759,12 @@ class DroidCamStreamer(
                 override fun onConfigured(session: CameraCaptureSession) {
                     captureSession = session
                     try {
+                        if (aiTrackerEngine?.isTrackingEnabled() == true) {
+                            builder.set(CaptureRequest.SCALER_CROP_REGION, aiTrackerEngine?.getCurrentCropRegion())
+                        }
                         session.setRepeatingRequest(builder.build(), captureCallback, cameraHandler)
+                        cameraHandler?.removeCallbacks(smoothingRunnable)
+                        cameraHandler?.post(smoothingRunnable)
                     } catch (e: Exception) {
                         Logger.log("DROIDCAM_STREAMER", "setRepeatingRequest error: ${e.message}")
                     }
@@ -622,6 +776,47 @@ class DroidCamStreamer(
             }, cameraHandler)
         } catch (e: Exception) {
             Logger.log("DROIDCAM_STREAMER", "updateCaptureSession exception: ${e.message}")
+        }
+    }
+
+    private val smoothingRunnable = object : Runnable {
+        override fun run() {
+            if (isStreaming && aiTrackerEngine?.isTrackingEnabled() == true) {
+                if (aiTrackerEngine?.updateSmoothingStep() == true) {
+                    val crop = aiTrackerEngine?.getCurrentCropRegion()
+                    if (crop != null) {
+                        applyCropRegion(crop)
+                    }
+                }
+            }
+            if (isStreaming) {
+                cameraHandler?.postDelayed(this, 16) // 60 FPS motion damping
+            }
+        }
+    }
+
+    private fun yuvImageToThumbnailBitmap(image: Image): Bitmap? {
+        return try {
+            val yBuffer = image.planes[0].buffer
+            val uBuffer = image.planes[1].buffer
+            val vBuffer = image.planes[2].buffer
+
+            val ySize = yBuffer.remaining()
+            val uSize = uBuffer.remaining()
+            val vSize = vBuffer.remaining()
+
+            val nv21 = ByteArray(ySize + uSize + vSize)
+            yBuffer.get(nv21, 0, ySize)
+            vBuffer.get(nv21, ySize, vSize)
+            uBuffer.get(nv21, ySize + vSize, uSize)
+
+            val yuvImage = YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
+            val out = ByteArrayOutputStream()
+            yuvImage.compressToJpeg(Rect(0, 0, image.width, image.height), 70, out)
+            val bytes = out.toByteArray()
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -658,14 +853,23 @@ class DroidCamStreamer(
             cameraThread = HandlerThread("DroidCamCameraThread").apply { start() }
             cameraHandler = Handler(cameraThread!!.looper)
         }
+        if (aiThread == null) {
+            aiThread = HandlerThread("DroidCamAiThread").apply { start() }
+            aiHandler = Handler(aiThread!!.looper)
+        }
     }
 
     private fun stopBackgroundThread() {
+        cameraHandler?.removeCallbacks(smoothingRunnable)
         cameraThread?.quitSafely()
+        aiThread?.quitSafely()
         try {
             cameraThread?.join()
+            aiThread?.join()
         } catch (_: Exception) { }
         cameraThread = null
         cameraHandler = null
+        aiThread = null
+        aiHandler = null
     }
 }

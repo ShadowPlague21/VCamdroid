@@ -47,6 +47,8 @@ tasks.register<Copy>("copyApk") {
 
 dependencies {
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("com.google.mlkit:face-detection:16.1.7")
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
 
     implementation("androidx.camera:camera-core:1.4.2")
     implementation("androidx.camera:camera-camera2:1.4.2")

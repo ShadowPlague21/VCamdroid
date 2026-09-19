@@ -23,6 +23,7 @@ import com.darusc.vcamdroid.droidcam.DroidCamServer
 import com.darusc.vcamdroid.droidcam.DroidCamSettings
 import com.darusc.vcamdroid.droidcam.DroidCamStreamer
 import com.darusc.vcamdroid.droidcam.MdnsAdvertiser
+import com.darusc.vcamdroid.ai.AiTrackerEngine
 import com.darusc.vcamdroid.service.StreamingService
 import com.darusc.vcamdroid.util.Logger
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -90,6 +91,25 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
         return true
     }
 
+    private var hideFeedbackRunnable: Runnable? = null
+
+    private fun showGestureFeedbackToast(message: String) {
+        binding.txtGestureFeedback.text = message
+        binding.txtGestureFeedback.visibility = View.VISIBLE
+        binding.txtGestureFeedback.alpha = 1.0f
+
+        hideFeedbackRunnable?.let { binding.txtGestureFeedback.removeCallbacks(it) }
+        val r = Runnable {
+            binding.txtGestureFeedback.animate()
+                .alpha(0f)
+                .setDuration(400)
+                .withEndAction { binding.txtGestureFeedback.visibility = View.GONE }
+                .start()
+        }
+        hideFeedbackRunnable = r
+        binding.txtGestureFeedback.postDelayed(r, 2200)
+    }
+
     private fun setupStudioHUD() {
         binding.btnBack.setOnClickListener {
             finish()
@@ -105,6 +125,76 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
 
         binding.btnSettings.setOnClickListener {
             showStudioSettingsSheet()
+        }
+
+        // AI Tracking Toggle Button
+        fun updateAiTrackUI(enabled: Boolean) {
+            if (enabled) {
+                binding.btnAiTrack.text = "AI ON"
+                binding.btnAiTrack.setBackgroundColor(Color.parseColor("#00E676"))
+                binding.btnAiTrack.setTextColor(Color.BLACK)
+            } else {
+                binding.btnAiTrack.text = "AI OFF"
+                binding.btnAiTrack.setBackgroundColor(Color.parseColor("#2E303E"))
+                binding.btnAiTrack.setTextColor(Color.WHITE)
+                binding.faceReticle.visibility = View.GONE
+            }
+        }
+
+        updateAiTrackUI(settings.isAiTrackingEnabled)
+
+        binding.btnAiTrack.setOnClickListener {
+            val newState = streamer.toggleAiTracking()
+            updateAiTrackUI(newState)
+            showGestureFeedbackToast(if (newState) "🤖 AI Tracking Enabled" else "⏸️ AI Tracking Paused")
+        }
+
+        // Framing Mode (16:9 Landscape vs 9:16 Vertical)
+        fun updateFramingModeUI(mode: AiTrackerEngine.FramingMode) {
+            binding.btnFramingMode.text = if (mode == AiTrackerEngine.FramingMode.PORTRAIT_9_16) "9:16" else "16:9"
+            val label = if (mode == AiTrackerEngine.FramingMode.PORTRAIT_9_16) "Vertical 9:16 (Shorts/Reels)" else "Landscape 16:9"
+            showGestureFeedbackToast("📐 Framing: $label")
+        }
+
+        binding.btnFramingMode.text = settings.aiFramingMode
+        binding.btnFramingMode.setOnClickListener {
+            val nextMode = streamer.toggleFramingMode()
+            updateFramingModeUI(nextMode)
+        }
+
+        // Callbacks for Gestures and Face Tracking
+        streamer.onAiTrackingStateChanged = { active ->
+            runOnUiThread {
+                updateAiTrackUI(active)
+            }
+        }
+
+        streamer.onGestureFeedback = { message ->
+            runOnUiThread {
+                showGestureFeedbackToast(message)
+            }
+        }
+
+        streamer.onAiFaceTrackingUpdate = { hasFace, bounds ->
+            runOnUiThread {
+                if (hasFace && bounds != null && streamer.aiTrackerEngine?.isTrackingEnabled() == true) {
+                    val pW = binding.cameraPreview.width.toFloat()
+                    val pH = binding.cameraPreview.height.toFloat()
+                    if (pW > 0 && pH > 0) {
+                        binding.faceReticle.visibility = View.VISIBLE
+                        binding.faceReticle.x = (bounds.left * pW).coerceAtLeast(0f)
+                        binding.faceReticle.y = (bounds.top * pH).coerceAtLeast(0f)
+                        val boxW = (bounds.width() * pW).toInt().coerceAtLeast(80)
+                        val boxH = (bounds.height() * pH).toInt().coerceAtLeast(80)
+                        val lp = binding.faceReticle.layoutParams
+                        lp.width = boxW
+                        lp.height = boxH
+                        binding.faceReticle.layoutParams = lp
+                    }
+                } else {
+                    binding.faceReticle.visibility = View.GONE
+                }
+            }
         }
     }
 

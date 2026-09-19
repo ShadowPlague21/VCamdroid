@@ -27,12 +27,30 @@ class DroidCamSettings(context: Context) {
         const val KEY_SHOW_TALLY = "show_tally_indicator"
         const val KEY_PORT = "droidcam_port"
 
+        // AI Tracking and Gesture Preferences
+        const val KEY_AI_TRACKING = "ai_tracking_enabled"
+        const val KEY_AI_FRAMING_MODE = "ai_framing_mode" // "16:9" or "9:16"
+        const val KEY_GESTURES_ENABLED = "ai_gestures_enabled"
+
         // Last saved camera parameters
         const val KEY_LAST_ZOOM = "last_zoom_factor"
         const val KEY_LAST_EV = "last_exposure_compensation"
         const val KEY_LAST_AWB = "last_awb_mode"
         const val KEY_LAST_AF = "last_af_mode"
     }
+
+    // AI Tracking Options
+    var isAiTrackingEnabled: Boolean
+        get() = prefs.getBoolean(KEY_AI_TRACKING, true)
+        set(value) = prefs.edit().putBoolean(KEY_AI_TRACKING, value).apply()
+
+    var aiFramingMode: String
+        get() = prefs.getString(KEY_AI_FRAMING_MODE, "16:9") ?: "16:9"
+        set(value) = prefs.edit().putString(KEY_AI_FRAMING_MODE, value).apply()
+
+    var isGesturesEnabled: Boolean
+        get() = prefs.getBoolean(KEY_GESTURES_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_GESTURES_ENABLED, value).apply()
 
     // Video Options
     var targetResolutionWidth: Int
