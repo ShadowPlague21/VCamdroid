@@ -26,7 +26,7 @@
 2. [**The Vision: "Insta360 Link 2 on Mobile" & Current Status**](#the-vision-insta360-link-2-on-mobile--current-status)
 3. [**Key Features**](#key-features)
 4. [**Modes of Operation**](#modes-of-operation)
-   * [1. OBS Studio Mode (DroidCam OBS Drop-in Replacement)](#1-obs-studio-mode-droidcam-obs-drop-in-replacement)
+   * [1. OBS Studio Mode (VCamdroid OBS Plugin & Bidirectional Sync)](#1-obs-studio-mode-vcamdroid-obs-plugin--bidirectional-sync)
    * [2. Desktop Client & Virtual Webcam Mode](#2-desktop-client--virtual-webcam-mode)
 5. [**Pro Studio Controls**](#pro-studio-controls)
 6. [**Installation Guide**](#installation-guide)
@@ -44,7 +44,7 @@
 ## Description
 
 **VCamdroid** transforms your Android smartphone into a broadcast-grade video capture device. It provides two powerful operating modes:
-1. **Direct OBS Studio Streaming (DroidCam OBS Drop-in Replacement):** A standalone, low-latency streaming server running directly on your phone. It acts as a seamless **drop-in replacement for the DroidCam OBS plugin** in OBS Studio over Wi-Fi and high-speed USB (ADB), featuring pro studio manual camera controls, live tally feedback, direct numeric entry, and hardware-accelerated H.264/HEVC encoding up to 1080p @ 60 FPS.
+1. **Direct OBS Studio Streaming (VCamdroid OBS Plugin / Drop-in Replacement):** A standalone, ultra-low-latency streaming server running directly on your phone. Pairs seamlessly with the [**VCamdroid OBS Plugin**](https://github.com/ShadowPlague21/VCamdroid-obs-plugin) for **symmetric peer-to-peer synchronization** (remote lens switching, target FPS controls, instant 0 ms dynamic dimension sync, and oddball 1:1 / 9:16 vertical resolutions) or functions as a drop-in replacement for standard DroidCam OBS sources over Wi-Fi and high-speed USB (ADB).
 2. **Windows Virtual Webcam:** A custom DirectShow filter registered via the desktop client, enabling seamless camera feeds into Zoom, Microsoft Teams, Discord, Google Meet, and any standard Windows webcam application.
 
 <p align="center">
@@ -136,8 +136,14 @@ We are continuing to work on hyper-efficient ML models, ISP delegation, and clea
 
 ## Modes of Operation
 
-### 1. OBS Studio Mode (DroidCam OBS Drop-in Replacement)
-Launch the **OBS Plugin Mode** from the main screen to start the embedded streaming server on port `4747`. It functions as a complete drop-in replacement for the DroidCam OBS plugin. In OBS Studio, simply add a **DroidCam OBS** source to connect directly over local Wi-Fi or zero-latency USB without needing any intermediate desktop client.
+### 1. OBS Studio Mode (VCamdroid OBS Plugin & Bidirectional Sync)
+Launch the **OBS Plugin Mode** from the main screen to start the embedded streaming server on port `4747`. 
+
+* **Recommended Companion Plugin:** Use the dedicated [**VCamdroid OBS Plugin**](https://github.com/ShadowPlague21/VCamdroid-obs-plugin) for **symmetric peer-to-peer synchronization**:
+  * **Phone $\to$ OBS:** Tap any resolution or aspect ratio on the phone (1080p, 720p, 1440p, 4K, 1:1 square, 9:16 vertical, 4:3, 21:9); OBS detects the change on the very first decoded frame and updates its canvas with 0 ms delay.
+  * **OBS $\to$ Phone:** Switch camera lenses (Rear Sensor Wide vs. Front Sensor) or target FPS directly from the OBS source properties dialog; the phone adjusts its encoder and on-screen HUD in real time.
+  * **Odd-Ball Aspect Ratios:** Full hardware-validated encoding for 1:1 square (Instagram/avatars), 9:16 vertical (Shorts/Reels/TikTok), 4:3 studio, and ultrawide.
+* **Legacy DroidCam OBS Drop-in Compatibility:** Also functions as a 100% drop-in replacement for standard DroidCam OBS plugins over Wi-Fi and high-speed USB (ADB).
 
 ### 2. Desktop Client & Virtual Webcam Mode
 Use the Windows desktop client to receive RTSP video streams from the Android app. The desktop client outputs frames to a DirectShow virtual webcam (`softcam.dll`), making your phone's camera visible as a standard USB webcam in video conferencing and browser software.
@@ -149,7 +155,7 @@ Use the Windows desktop client to receive RTSP video streams from the Android ap
 The in-app studio interface provides a professional heads-up display (HUD):
 
 | Control | Description | Range / Options | Direct Edit |
-| :--- | :--- | :--- | :---: |
+| :--- | :--- | :--- | :--- |
 | **ISO** | Sensor light sensitivity & gain | 100 - 6400 (or Auto) | Yes (Tap value) |
 | **Zoom** | Smooth continuous digital & optical magnification | 1.0x - 10.0x | Yes (Tap value) |
 | **EV** | Auto-exposure compensation bias | Device-supported steps | Yes (Tap value) |
@@ -170,10 +176,9 @@ The in-app studio interface provides a professional heads-up display (HUD):
 * **Phone:** Android 7.0 (Nougat) or higher (Android 10+ recommended for HEVC 60 FPS).
 
 ### Step 1: Install on Windows
-1. Download the latest release from the [**Releases Page**](https://github.com/ShadowPlague21/VCamdroid/releases).
-2. Extract the archive to a local folder.
-3. If using the Virtual Webcam feature, right-click `install.bat` and select **Run as Administrator** to register `softcam.dll`.
-4. Allow `VCamdroid.exe` through Windows Firewall (check both **Private** and **Public** profiles).
+1. For OBS Studio: Download and run the 1-click installer from [**VCamdroid OBS Plugin**](https://github.com/ShadowPlague21/VCamdroid-obs-plugin/releases/tag/latest).
+2. For Virtual Webcam (Zoom, Teams, Meet): Download the desktop client from the [**Releases Page**](https://github.com/ShadowPlague21/VCamdroid/releases), extract, and run `install.bat` as Administrator.
+3. Allow `VCamdroid.exe` through Windows Firewall (check both **Private** and **Public** profiles).
 
 ### Step 2: Install on Android
 1. Transfer the APK file to your phone and install it, or install via ADB:
@@ -189,21 +194,20 @@ The in-app studio interface provides a professional heads-up display (HUD):
 ### OBS Studio via Wired USB (ADB)
 *Recommended for the lowest latency and rock-solid broadcast stability.*
 
-1. Connect your Android phone to the PC with a USB cable.
-2. Ensure **USB Debugging** is enabled in Developer Options.
-3. Forward the streaming port using ADB in PowerShell or Command Prompt:
+1. Connect your Android phone to the PC with a USB cable and ensure **USB Debugging** is enabled in Developer Options.
+2. Forward the streaming port using ADB in PowerShell or Command Prompt:
    ```powershell
    adb forward tcp:4747 tcp:4747
    ```
-4. Open the **VCamdroid** app on your phone and tap **OBS Plugin Mode (No QR)**.
-5. In OBS Studio, add a **DroidCam OBS** source configured to address `127.0.0.1` on port `4747` (or select USB).
-6. Streaming begins instantly. The tally badge will reflect your live broadcast state.
+3. Open the **VCamdroid** app on your phone and tap **OBS Plugin Mode (No QR)**.
+4. In OBS Studio, add a **VCamdroid** (or **DroidCam OBS**) source configured to address `127.0.0.1` on port `4747` (or select USB).
+5. Streaming begins instantly. The tally badge will reflect your live broadcast state (`ON AIR` / `PREVIEW` / `IDLE`).
 
 ### OBS Studio via Local Wi-Fi
 1. Connect your phone and PC to the same Wi-Fi network.
 2. Open **VCamdroid** on your phone and tap **OBS Plugin Mode (No QR)**.
 3. Note the IP address displayed on the screen (e.g., `192.168.1.150:4747`).
-4. In OBS Studio, add a **DroidCam OBS** source configured to connect to that IP address on port `4747`.
+4. In OBS Studio, add a **VCamdroid** (or **DroidCam OBS**) source configured to connect to that IP address on port `4747`.
 
 ### Windows Desktop Client via USB / Wi-Fi
 1. Launch `VCamdroid.exe` on your PC.
