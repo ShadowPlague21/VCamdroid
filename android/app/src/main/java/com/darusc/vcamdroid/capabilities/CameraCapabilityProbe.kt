@@ -289,8 +289,10 @@ object CameraCapabilityProbe {
                     null
                 }
                 val maxFps = sizeFpsRanges?.maxOfOrNull { it.upper }
-                    ?: hsFpsRanges?.maxOfOrNull { it.upper }
-                    ?: 120
+                if (maxFps == null || maxFps <= 0) {
+                    // Unknown or unsupported for this specific size; do not fabricate a capability
+                    return@forEach
+                }
                 highSpeedProfiles.add(
                     ResolutionProfile(
                         size = size,

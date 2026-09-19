@@ -125,30 +125,32 @@ void Server::Close()
 
 void Server::TCPDoAccept()
 {
-	acceptor.async_accept([&, this](asio::error_code ec, tcp::socket socket) {
+	acceptor.async_accept([this](asio::error_code ec, tcp::socket socket) {
 		if (!ec)
 		{
-			logger << "[SERVER] Device connected." << socket.remote_endpoint() << std::endl;
+			logger << "[SERVER] Device connected: " << socket.remote_endpoint() << std::endl;
 
-			// Read the only message sent by the client (the device descriptor)
-			// We need to read this here because the connection listener
-			// needs all the data sent by the client (trough GetConnectedDevicesInfo)
-			// otherwise the connection would need to be passed to the connection
-			std::array<char, 512> buffer;
-			size_t size = socket.read_some(asio::buffer(buffer, 512));
-			
-			// auto ipaddress = socket.remote_endpoint().address().to_string();
-			auto descriptor = Serializer::DeserializeDeviceDescriptor((const uint8_t*)buffer.data(), size);
+			auto sockPtr = std::make_shared<tcp::socket>(std::move(socket));
+			auto bufPtr = std::make_shared<std::array<uint8_t, 1024>>();
 
-			auto conn = std::make_shared<Connection>(
-				std::move(socket),
-				descriptor,
-				std::bind(&Server::OnConnectionDisconnected, this, std::placeholders::_1),
-				std::bind(&Server::OnConnectionReportingError, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)
-			);
-			connections.push_back(std::move(conn));
-
-			connectionListener.OnDeviceConnected(descriptor);
+			sockPtr->async_read_some(asio::buffer(*bufPtr), [this, sockPtr, bufPtr](asio::error_code readEc, size_t bytesRead) {
+				if (!readEc && bytesRead > 0)
+				{
+					auto descriptor = Serializer::DeserializeDeviceDescriptor(bufPtr->data(), bytesRead);
+					auto conn = std::make_shared<Connection>(
+						std::move(*sockPtr),
+						descriptor,
+						std::bind(&Server::OnConnectionDisconnected, this, std::placeholders::_1),
+						std::bind(&Server::OnConnectionReportingError, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)
+					);
+					connections.push_back(conn);
+					connectionListener.OnDeviceConnected(descriptor);
+				}
+				else
+				{
+					logger << "[SERVER] Failed to read initial device descriptor: " << readEc.message() << std::endl;
+				}
+			});
 		}
 		else if (ec != asio::error::operation_aborted)
 		{

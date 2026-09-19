@@ -91,8 +91,91 @@ class StreamActivity : AppCompatActivity(), SurfaceHolder.Callback, ConnectionMa
         finish()
     }
 
+    private val receiveAccumulator = java.io.ByteArrayOutputStream()
+
+    @Synchronized
     private fun onBytesReceived(buffer: ByteArray, bytes: Int) {
         if (bytes <= 0) return
+        receiveAccumulator.write(buffer, 0, bytes)
+
+        while (true) {
+            val accumulated = receiveAccumulator.toByteArray()
+            if (accumulated.isEmpty()) break
+
+            val packetLen = getPacketLength(accumulated, 0, accumulated.size) ?: break
+            if (packetLen <= 0) {
+                // Discard single unrecognized byte to realign stream
+                val nextBytes = accumulated.copyOfRange(1, accumulated.size)
+                receiveAccumulator.reset()
+                receiveAccumulator.write(nextBytes)
+                continue
+            }
+
+            val packet = accumulated.copyOfRange(0, packetLen)
+            handleSinglePacket(packet)
+
+            val remaining = accumulated.size - packetLen
+            receiveAccumulator.reset()
+            if (remaining > 0) {
+                receiveAccumulator.write(accumulated, packetLen, remaining)
+            }
+        }
+    }
+
+    private fun getPacketLength(bytes: ByteArray, offset: Int, available: Int): Int? {
+        if (available < 1) return null
+        val type = bytes[offset]
+
+        return when (type) {
+            PacketType.CAMERA -> 1
+            PacketType.ROTATION -> if (available >= 2) 2 else null
+            PacketType.RESOLUTION -> if (available >= 5) 5 else null
+            PacketType.FPS -> if (available >= 2) 2 else null
+            PacketType.BITRATE -> if (available >= 3) 3 else null
+            PacketType.ADAPTIVE_BITRATE -> if (available >= 5) 5 else null
+            PacketType.STABILIZATION -> if (available >= 2) 2 else null
+            PacketType.FLASH -> if (available >= 2) 2 else null
+            PacketType.FOCUS -> if (available >= 2) 2 else null
+            PacketType.CODEC -> if (available >= 2) 2 else null
+            PacketType.ZOOM -> if (available >= 5) 5 else null
+            PacketType.FLIP -> if (available >= 2) 2 else null
+            PacketType.EFFECT_FILTER -> {
+                if (available < 2) return null
+                val nameLen = bytes[offset + 1].toInt() and 0xFF
+                val total = 2 + nameLen
+                if (available >= total) total else null
+            }
+            PacketType.CORRECTION_FILTER -> {
+                if (available < 2) return null
+                val nameLen = bytes[offset + 1].toInt() and 0xFF
+                val total = 3 + nameLen
+                if (available >= total) total else null
+            }
+            PacketType.ACTIVATION -> {
+                if (available < 40) return null
+                var cursor = offset + 38
+                val filterCount = ((bytes[cursor].toInt() and 0xFF) shl 8) or (bytes[cursor + 1].toInt() and 0xFF)
+                cursor += 2
+
+                for (i in 0 until filterCount) {
+                    if (offset + available < cursor + 2) return null
+                    val strLen = ((bytes[cursor].toInt() and 0xFF) shl 8) or (bytes[cursor + 1].toInt() and 0xFF)
+                    cursor += 2 + strLen + 4
+                    if (offset + available < cursor) return null
+                }
+
+                if (offset + available < cursor + 2) return null
+                val effectLen = ((bytes[cursor].toInt() and 0xFF) shl 8) or (bytes[cursor + 1].toInt() and 0xFF)
+                cursor += 2 + effectLen
+                if (offset + available < cursor) return null
+
+                cursor - offset
+            }
+            else -> 0
+        }
+    }
+
+    private fun handleSinglePacket(buffer: ByteArray) {
         val type = buffer[0]
 
         when (type) {

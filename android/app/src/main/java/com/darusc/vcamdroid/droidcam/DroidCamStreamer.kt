@@ -62,6 +62,8 @@ class DroidCamStreamer(
         private set
     var currentFormat = "avc"
         private set
+    var currentFps = 30
+        private set
     var isBackCamera = true
         private set
 
@@ -270,7 +272,7 @@ class DroidCamStreamer(
         currentHeight = validH
         currentFormat = format
         isBackCamera = facingBack
-        settings.targetFps = fps
+        currentFps = fps
         aiTrackerEngine?.setStreamSize(validW, validH)
 
         startBackgroundThread()
@@ -311,7 +313,7 @@ class DroidCamStreamer(
     fun switchLens(facingBack: Boolean) {
         isBackCamera = facingBack
         if (isStreaming) {
-            startStream(currentFormat, currentWidth, currentHeight, settings.targetFps, facingBack)
+            startStream(currentFormat, currentWidth, currentHeight, currentFps, facingBack)
         } else {
             startLocalPreview(facingBack)
         }
@@ -763,8 +765,10 @@ class DroidCamStreamer(
 
             override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
                 Logger.log("DROIDCAM_STREAMER", "MediaCodec error: ${e.message}")
-                if (isStreaming) {
-                    stopStream()
+                cameraHandler?.post {
+                    if (isStreaming) {
+                        stopStream()
+                    }
                 }
             }
 
