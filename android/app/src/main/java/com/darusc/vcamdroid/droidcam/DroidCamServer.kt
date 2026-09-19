@@ -105,12 +105,31 @@ class DroidCamServer(
                 }
 
                 firstLine.startsWith("GET /resolutions") || firstLine.startsWith("GET /probe") || firstLine.startsWith("GET /v1/resolutions") -> {
-                    val (backRes, frontRes) = com.darusc.vcamdroid.video.queryDeviceResolutions(context)
-                    val backStr = backRes.joinToString(",") { "\"${it.first}x${it.second}\"" }
-                    val frontStr = frontRes.joinToString(",") { "\"${it.first}x${it.second}\"" }
-                    val body = "{\"back\":[$backStr],\"front\":[$frontStr]}"
-                    val response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n$body"
+                    // FAANG: now uses full capability probe - real HAL values with FPS, formats, MP
+                    val report = com.darusc.vcamdroid.capabilities.CameraCapabilityProbe.probeSync(context)
+                    val backNode = report.primaryBack
+                    val frontNode = report.primaryFront
+                    val backRes = backNode?.streams?.allProfiles?.map { "${it.width}x${it.height}@${it.maxFps ?: 30}fps" } ?: emptyList()
+                    val frontRes = frontNode?.streams?.allProfiles?.map { "${it.width}x${it.height}@${it.maxFps ?: 30}fps" } ?: emptyList()
+                    val backStr = backRes.joinToString(",") { "\"$it\"" }
+                    val frontStr = frontRes.joinToString(",") { "\"$it\"" }
+                    // Backward compat simple format + new detailed fields
+                    val body = "{\"back\":[$backStr],\"front\":[$frontStr],\"device\":\"${report.manufacturer} ${report.model}\",\"cameras\":${report.cameras.size},\"fullReport\":true}"
+                    val bodyBytes = body.toByteArray(Charsets.UTF_8)
+                    val response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bodyBytes.size}\r\nConnection: close\r\n\r\n"
                     socket.getOutputStream().write(response.toByteArray())
+                    socket.getOutputStream().write(bodyBytes)
+                    socket.getOutputStream().flush()
+                    socket.close()
+                }
+
+                firstLine.startsWith("GET /capabilities") || firstLine.startsWith("GET /v1/capabilities") || firstLine.startsWith("GET /hal") -> {
+                    val report = com.darusc.vcamdroid.capabilities.CameraCapabilityProbe.probeSync(context)
+                    val body = report.toJson()
+                    val bodyBytes = body.toByteArray(Charsets.UTF_8)
+                    val response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bodyBytes.size}\r\nConnection: close\r\n\r\n"
+                    socket.getOutputStream().write(response.toByteArray())
+                    socket.getOutputStream().write(bodyBytes)
                     socket.getOutputStream().flush()
                     socket.close()
                 }

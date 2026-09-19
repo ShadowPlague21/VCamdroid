@@ -12,6 +12,7 @@ import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
+import com.darusc.vcamdroid.capabilities.CameraCapabilityProbe
 
 val DEFAULT_STANDARD_RESOLUTIONS = listOf(
     Pair(3840, 2160), // 4K UHD
@@ -24,13 +25,32 @@ val DEFAULT_STANDARD_RESOLUTIONS = listOf(
 )
 
 /**
- * Synchronously query supported resolutions for back and front cameras directly via CameraManager.
+ * Industry-standard: now delegates to CameraCapabilityProbe which does full HAL parsing
+ * including minFrameDuration for real max FPS, high-speed video, physical cameras.
+ * 
+ * This function is kept for backward compatibility but now returns real values.
  */
 fun queryDeviceResolutions(context: Context): Pair<List<Pair<Int, Int>>, List<Pair<Int, Int>>> {
     return try {
-        val back = getResolutionsForFacing(context, facingBack = true)
-        val front = getResolutionsForFacing(context, facingBack = false)
-        Pair(back, front)
+        // FAANG approach: single source of truth - full capability report
+        val report = CameraCapabilityProbe.probeSync(context)
+        val back = report.backCameras.flatMap { it.streams.allProfiles }
+            .distinctBy { "${it.width}x${it.height}" }
+            .sortedByDescending { it.width * it.height }
+            .map { Pair(it.width, it.height) }
+        val front = report.frontCameras.flatMap { it.streams.allProfiles }
+            .distinctBy { "${it.width}x${it.height}" }
+            .sortedByDescending { it.width * it.height }
+            .map { Pair(it.width, it.height) }
+
+        if (back.isNotEmpty() && front.isNotEmpty()) {
+            Pair(back, front)
+        } else {
+            // Fallback to legacy per-facing query if new probe returns empty (should not happen)
+            val backLegacy = getResolutionsForFacing(context, facingBack = true)
+            val frontLegacy = getResolutionsForFacing(context, facingBack = false)
+            Pair(backLegacy, frontLegacy)
+        }
     } catch (e: Exception) {
         e.printStackTrace()
         Pair(DEFAULT_STANDARD_RESOLUTIONS, DEFAULT_STANDARD_RESOLUTIONS)
@@ -38,7 +58,8 @@ fun queryDeviceResolutions(context: Context): Pair<List<Pair<Int, Int>>, List<Pa
 }
 
 /**
- * Synchronously query resolutions for a specific camera facing (back vs front).
+ * Legacy per-facing query - still dynamic, not hardcoded, but now considered fallback
+ * Real implementation is in CameraCapabilityProbe.parseStreamInfo()
  */
 fun getResolutionsForFacing(context: Context, facingBack: Boolean): List<Pair<Int, Int>> {
     val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
@@ -75,7 +96,7 @@ fun getResolutionsForFacing(context: Context, facingBack: Boolean): List<Pair<In
     return DEFAULT_STANDARD_RESOLUTIONS
 }
 
-private fun extractResolutionsFromMap(map: StreamConfigurationMap): List<Pair<Int, Int>> {
+internal fun extractResolutionsFromMap(map: StreamConfigurationMap): List<Pair<Int, Int>> {
     val rawSizes = mutableSetOf<Size>()
 
     // Query multiple target classes and formats for comprehensive resolution discovery
@@ -111,7 +132,18 @@ fun getSupportedResolutions(
     context: Context,
     onResult: (back: List<Pair<Int, Int>>, front: List<Pair<Int, Int>>) -> Unit
 ) {
-    // Try fast synchronous query via CameraManager first
+    // Try fast synchronous query via new probe first
+    try {
+        val report = CameraCapabilityProbe.probeSync(context)
+        val back = report.backCameras.flatMap { it.streams.allProfiles }.distinctBy { "${it.width}x${it.height}" }.map { Pair(it.width, it.height) }
+        val front = report.frontCameras.flatMap { it.streams.allProfiles }.distinctBy { "${it.width}x${it.height}" }.map { Pair(it.width, it.height) }
+        if (back.isNotEmpty() && front.isNotEmpty()) {
+            onResult(back, front)
+            return
+        }
+    } catch (_: Exception) {}
+
+    // Fallback to old method
     val (backSync, frontSync) = queryDeviceResolutions(context)
     if (backSync.isNotEmpty() && frontSync.isNotEmpty()) {
         onResult(backSync, frontSync)

@@ -1057,63 +1057,160 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         val probeBinding = DialogSensorProbeBinding.inflate(layoutInflater)
         dialog.setContentView(probeBinding.root)
 
-        val (backRes, frontRes) = com.darusc.vcamdroid.video.queryDeviceResolutions(this)
+        // FAANG-grade probe: real HAL values, not hardcoded
+        val report = com.darusc.vcamdroid.capabilities.CameraCapabilityProbe.probeSync(this)
+        com.darusc.vcamdroid.capabilities.CapabilityRepository.getInstance().refreshSync(this)
 
-        fun renderResolutions(isRear: Boolean) {
+        probeBinding.txtDeviceInfo.text = "${report.manufacturer} ${report.model} • ${report.cameras.size} camera IDs • SDK ${report.sdk}"
+
+        var selectedFacing: com.darusc.vcamdroid.capabilities.Facing? = com.darusc.vcamdroid.capabilities.Facing.BACK
+        var showAll = false
+        var currentNodes: List<com.darusc.vcamdroid.capabilities.CameraNode> = report.backCameras
+
+        fun styleTab(active: android.widget.Button, others: List<android.widget.Button>) {
+            active.setBackgroundColor(Color.parseColor("#00E676"))
+            active.setTextColor(Color.BLACK)
+            others.forEach {
+                it.setBackgroundColor(Color.parseColor("#222430"))
+                it.setTextColor(Color.WHITE)
+            }
+        }
+
+        fun renderCapabilities() {
             probeBinding.resolutionsContainer.removeAllViews()
 
-            if (isRear) {
-                probeBinding.btnTabRear.setBackgroundColor(Color.parseColor("#00E676"))
-                probeBinding.btnTabRear.setTextColor(Color.BLACK)
-                probeBinding.btnTabFront.setBackgroundColor(Color.parseColor("#222430"))
-                probeBinding.btnTabFront.setTextColor(Color.WHITE)
-            } else {
-                probeBinding.btnTabFront.setBackgroundColor(Color.parseColor("#00E676"))
-                probeBinding.btnTabFront.setTextColor(Color.BLACK)
-                probeBinding.btnTabRear.setBackgroundColor(Color.parseColor("#222430"))
-                probeBinding.btnTabRear.setTextColor(Color.WHITE)
+            val nodesToShow = when {
+                showAll -> report.cameras
+                selectedFacing != null -> report.cameras.filter { it.facing == selectedFacing }
+                else -> report.cameras
             }
 
-            val list = if (isRear) backRes else frontRes
-            for (r in list) {
+            currentNodes = nodesToShow
+
+            if (nodesToShow.isEmpty()) {
+                probeBinding.txtCameraIdHeader.text = "No cameras found"
+                probeBinding.txtResolutionCount.text = "0 modes"
+                return
+            }
+
+            // Show primary node details in header card
+            val primary = nodesToShow.firstOrNull()
+            if (primary != null) {
+                probeBinding.txtCameraIdHeader.text = "${primary.displayName} - ${primary.id} - ${primary.hardwareLevel}"
+                probeBinding.txtHardwareLevel.text = "HW Level: ${primary.hardwareLevel} | Logical: ${primary.features.isLogical} | Physical: ${primary.features.physicalIds} | Facing: ${primary.facing}"
+                probeBinding.txtSensorInfo.text = "Sensor: Active ${primary.sensor.activeArray.width()}x${primary.sensor.activeArray.height()} @ ${primary.sensor.activeArray} | Pixel ${primary.sensor.pixelArraySize} | Orient ${primary.sensor.orientation}° | Physical ${primary.sensor.physicalSize}"
+                probeBinding.txtLensInfo.text = "Lens: f=${primary.lens.focalLengths.joinToString(",")}mm | MinFocus ${primary.lens.minFocusDistance?.let { String.format("%.2f diopters (%.0fcm)", it, 100f/it) } ?: "fixed focus"} | Calib ${primary.lens.focusCalibration}"
+                probeBinding.txtControlsInfo.text = "Controls: ISO ${primary.controls.isoRange ?: "N/A"} | EV ${primary.controls.evRange} step ${primary.controls.evStep} | ZoomRatio ${primary.controls.zoomRatioRange ?: "N/A"} | MaxDigitalZoom ${primary.controls.maxDigitalZoom}x | ManualIso ${primary.supportsManualIso()} MF ${primary.supportsManualFocus()}"
+                probeBinding.txtExposureInfo.text = "Exposure: ${primary.controls.exposureTimeRange?.let { "${it.lower/1_000_000}ms-${it.upper/1_000_000}ms" } ?: "N/A"} | FPS Ranges: ${primary.controls.fpsRanges.take(4).joinToString()} | Flash ${primary.features.hasFlash}"
+                probeBinding.txtFeaturesInfo.text = "Features: AF modes ${primary.features.afModes} | AWB ${primary.features.awbModes} | AE ${primary.features.aeModes} | OIS ${primary.features.stabilizationModes} | Caps ${primary.features.capabilities.take(5)}"
+            }
+
+            // Aggregate all profiles for selected facing
+            val allProfiles = nodesToShow.flatMap { it.streams.allProfiles }.distinctBy { "${it.width}x${it.height}" }.sortedByDescending { it.width * it.height }
+            probeBinding.txtResolutionCount.text = "${allProfiles.size} modes"
+
+            for (profile in allProfiles) {
                 val itemBinding = ItemSensorResolutionBinding.inflate(layoutInflater, probeBinding.resolutionsContainer, false)
-                itemBinding.txtResolution.text = "${r.first} × ${r.second}"
-                val aspect = String.format("%.2f:1", r.first.toFloat() / r.second.toFloat())
-                itemBinding.txtAspectRatio.text = aspect
+                itemBinding.txtResolution.text = "${profile.width} × ${profile.height}"
+                itemBinding.txtAspectRatio.text = profile.aspectRatioLabel
+
+                val fpsText = if (profile.maxFps != null) "max ${profile.maxFps}fps" else "fps ?"
+                val mpText = String.format("%.1fMP", profile.megapixels)
+                val durText = profile.minFrameDurationNs?.let { "${it/1_000_000}ms" } ?: "?"
+                itemBinding.txtFpsInfo.text = "$fpsText • $mpText • $durText minDuration ${if (profile.isHighSpeed) "[HS]" else ""}"
+
+                itemBinding.txtFormatBadge.text = profile.formats.take(3).joinToString("+")
 
                 itemBinding.root.setOnClickListener {
-                    settings.targetResolutionWidth = r.first
-                    settings.targetResolutionHeight = r.second
-                    adjustPreviewAspectRatio(r.first, r.second)
-                    binding.cameraPreview.surfaceTexture?.setDefaultBufferSize(r.first, r.second)
+                    settings.targetResolutionWidth = profile.width
+                    settings.targetResolutionHeight = profile.height
+                    adjustPreviewAspectRatio(profile.width, profile.height)
+                    binding.cameraPreview.surfaceTexture?.setDefaultBufferSize(profile.width, profile.height)
                     if (droidCamServer.isStreaming) {
                         streamer.stopStream()
-                        streamer.startStream(streamer.currentFormat, r.first, r.second, settings.targetFps, isBackCamera)
+                        streamer.startStream(streamer.currentFormat, profile.width, profile.height, settings.targetFps, isBackCamera)
                     }
                     updateConnectionPill()
-                    Toast.makeText(this, "Target resolution: ${r.first}×${r.second}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Target: ${profile.width}×${profile.height} max ${profile.maxFps}fps", Toast.LENGTH_SHORT).show()
                     dialog.dismiss()
                 }
                 probeBinding.resolutionsContainer.addView(itemBinding.root)
             }
+
+            // If showing all, also show per-camera breakdown
+            if (showAll) {
+                for (node in nodesToShow) {
+                    val header = TextView(this).apply {
+                        text = "── ${node.displayName} (${node.streams.allProfiles.size} modes) ──"
+                        setTextColor(Color.parseColor("#9E9EA7"))
+                        textSize = 11f
+                        setPadding(0, 24, 0, 8)
+                        typeface = android.graphics.Typeface.MONOSPACE
+                    }
+                    probeBinding.resolutionsContainer.addView(header)
+                    node.streams.allProfiles.take(5).forEach { p ->
+                        val tv = TextView(this).apply {
+                            text = "  ${p.width}x${p.height} ${p.aspectRatioLabel} max ${p.maxFps}fps"
+                            setTextColor(Color.parseColor("#666672"))
+                            textSize = 10f
+                            typeface = android.graphics.Typeface.MONOSPACE
+                            setPadding(0, 2, 0, 2)
+                        }
+                        probeBinding.resolutionsContainer.addView(tv)
+                    }
+                }
+            }
         }
 
-        probeBinding.btnTabRear.setOnClickListener { renderResolutions(true) }
-        probeBinding.btnTabFront.setOnClickListener { renderResolutions(false) }
+        probeBinding.btnTabRear.setOnClickListener {
+            selectedFacing = com.darusc.vcamdroid.capabilities.Facing.BACK
+            showAll = false
+            styleTab(probeBinding.btnTabRear, listOf(probeBinding.btnTabFront, probeBinding.btnTabAll))
+            renderCapabilities()
+        }
+        probeBinding.btnTabFront.setOnClickListener {
+            selectedFacing = com.darusc.vcamdroid.capabilities.Facing.FRONT
+            showAll = false
+            styleTab(probeBinding.btnTabFront, listOf(probeBinding.btnTabRear, probeBinding.btnTabAll))
+            renderCapabilities()
+        }
+        probeBinding.btnTabAll.setOnClickListener {
+            showAll = true
+            selectedFacing = null
+            styleTab(probeBinding.btnTabAll, listOf(probeBinding.btnTabRear, probeBinding.btnTabFront))
+            renderCapabilities()
+        }
         probeBinding.btnProbeBack.setOnClickListener { dialog.dismiss() }
 
         probeBinding.btnCopyClipboard.setOnClickListener {
-            val sb = StringBuilder("=== VCamdroid Sensor Probe ===\n")
-            sb.append("Rear Sensor Resolutions:\n")
-            backRes.forEach { sb.append("• ${it.first} × ${it.second} (${String.format("%.2f:1", it.first.toFloat() / it.second)})\n") }
-            sb.append("\nFront Sensor Resolutions:\n")
-            frontRes.forEach { sb.append("• ${it.first} × ${it.second} (${String.format("%.2f:1", it.first.toFloat() / it.second)})\n") }
-
+            val sb = StringBuilder("=== VCamdroid Sensor Probe (Real HAL) ===\n")
+            sb.append("Device: ${report.manufacturer} ${report.model} SDK ${report.sdk}\n")
+            sb.append("Cameras: ${report.cameras.size}\n\n")
+            report.cameras.forEach { cam ->
+                sb.append("--- ${cam.displayName} ---\n")
+                sb.append("HW: ${cam.hardwareLevel} Logical: ${cam.features.isLogical} Physical: ${cam.features.physicalIds}\n")
+                sb.append("Sensor Active: ${cam.sensor.activeArray} Pixel: ${cam.sensor.pixelArraySize} Orient: ${cam.sensor.orientation}\n")
+                sb.append("Resolutions: ${cam.streams.allProfiles.joinToString { "${it.width}x${it.height}@${it.maxFps}fps" }}\n\n")
+            }
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("VCamdroid Sensor Probe", sb.toString()))
-            Toast.makeText(this, "Sensor resolutions copied to clipboard", Toast.LENGTH_SHORT).show()
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("VCamdroid Probe", sb.toString()))
+            Toast.makeText(this, "Resolutions copied", Toast.LENGTH_SHORT).show()
         }
 
+        probeBinding.btnCopyFullReport.setOnClickListener {
+            val full = report.toHumanReadable()
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("VCamdroid Full HAL Report", full))
+            Toast.makeText(this, "Full HAL report copied (${full.length} chars)", Toast.LENGTH_LONG).show()
+        }
+
+        // Initial render
+        styleTab(probeBinding.btnTabRear, listOf(probeBinding.btnTabFront, probeBinding.btnTabAll))
+        renderCapabilities()
+        dialog.show()
+    }
+
+    private fun showConnectionDetailsDialog
         renderResolutions(true)
         dialog.show()
     }
