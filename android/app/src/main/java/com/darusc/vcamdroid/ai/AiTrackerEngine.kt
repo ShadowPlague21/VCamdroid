@@ -26,8 +26,9 @@ class AiTrackerEngine(
     private var lastInferenceTimeMs = 0L
     private val FACE_INFERENCE_INTERVAL_MS = 80L // ~12 Hz inference is plenty and saves CPU
 
-    // Sensor Geometry
-    private var sensorRect: Rect = Rect(0, 0, 4608, 3456)
+    // Sensor Geometry - FAANG: no hardcoded device values, real HAL value injected via setSensorActiveArray()
+    // Default is generic 4:3 placeholder, immediately overwritten by CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE
+    private var sensorRect: Rect = Rect(0, 0, 4032, 3024) // generic 12MP placeholder, NOT Realme-specific
 
     // Dynamic Gimbal State
     private var isTrackingEnabled = false
@@ -36,11 +37,11 @@ class AiTrackerEngine(
     private var streamWidth = 1920
     private var streamHeight = 1080
 
-    // Target and Smoothed Crop coordinates
-    private var targetCenterX = 2304f
-    private var targetCenterY = 1728f
-    private var currentCenterX = 2304f
-    private var currentCenterY = 1728f
+    // Target and Smoothed Crop coordinates - centered on generic placeholder, reset when real sensor arrives
+    private var targetCenterX = 2016f
+    private var targetCenterY = 1512f
+    private var currentCenterX = 2016f
+    private var currentCenterY = 1512f
 
     // SmoothDamp physics state for Bezier-like ease-in and ease-out
     private var velocityX = 0f

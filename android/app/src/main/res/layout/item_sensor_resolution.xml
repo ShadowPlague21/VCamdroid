@@ -2,29 +2,69 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:gravity="center_vertical"
+    android:orientation="vertical"
     android:background="@drawable/bg_param_pill"
     android:layout_marginBottom="6dp"
-    android:paddingHorizontal="16dp"
-    android:paddingVertical="12dp">
+    android:paddingHorizontal="14dp"
+    android:paddingVertical="10dp">
 
-    <TextView
-        android:id="@+id/txtResolution"
-        android:layout_width="0dp"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:text="3840 × 2160"
-        android:textColor="@color/text_primary"
-        android:textSize="14sp"
-        android:fontFamily="sans-serif-medium" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
-    <TextView
-        android:id="@+id/txtAspectRatio"
-        android:layout_width="wrap_content"
+        <TextView
+            android:id="@+id/txtResolution"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="1920 × 1080"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium" />
+
+        <TextView
+            android:id="@+id/txtAspectRatio"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="16:9"
+            android:textColor="@color/accent_green"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:background="@color/surface_control"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="2dp"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="1.78:1"
-        android:textColor="@color/accent_green"
-        android:textSize="13sp"
-        android:fontFamily="sans-serif-medium" />
+        android:orientation="horizontal"
+        android:layout_marginTop="4dp"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/txtFpsInfo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="max 60fps • 2.1MP • 16.6ms minDuration"
+            android:textColor="@color/text_secondary"
+            android:textSize="10sp"
+            android:fontFamily="monospace"/>
+
+        <TextView
+            android:id="@+id/txtFormatBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="YUV+PRIVATE"
+            android:textColor="@color/text_muted"
+            android:textSize="9sp"
+            android:fontFamily="monospace"
+            android:layout_marginStart="8dp"
+            android:background="@color/oled_black"
+            android:paddingHorizontal="4dp"
+            android:paddingVertical="1dp"/>
+    </LinearLayout>
+
 </LinearLayout>
