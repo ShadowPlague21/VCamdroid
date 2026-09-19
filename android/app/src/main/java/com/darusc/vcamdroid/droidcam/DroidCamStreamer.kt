@@ -26,6 +26,7 @@ import android.util.Range
 import android.view.Surface
 import com.darusc.vcamdroid.ai.AiTrackerEngine
 import com.darusc.vcamdroid.ai.GestureDetectorHelper
+import com.darusc.vcamdroid.capabilities.VideoCapabilityValidator
 import com.darusc.vcamdroid.util.Logger
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
@@ -257,25 +258,27 @@ class DroidCamStreamer(
         isStreaming = false
         closeCameraSession(releaseThreads = false)
 
-        currentWidth = width
-        currentHeight = height
-        currentFormat = format
-        isBackCamera = facingBack
-        aiTrackerEngine?.setStreamSize(width, height)
-
-        startBackgroundThread()
-
         val mimeType = if (format.equals("hevc", ignoreCase = true)) {
             MediaFormat.MIMETYPE_VIDEO_HEVC
         } else {
             MediaFormat.MIMETYPE_VIDEO_AVC
         }
 
+        val (validW, validH) = VideoCapabilityValidator.validateAndClamp(width, height, mimeType)
+
+        currentWidth = validW
+        currentHeight = validH
+        currentFormat = format
+        isBackCamera = facingBack
+        aiTrackerEngine?.setStreamSize(validW, validH)
+
+        startBackgroundThread()
+
         try {
-            setupEncoder(mimeType, width, height, settings.targetFps)
+            setupEncoder(mimeType, validW, validH, settings.targetFps)
             openCamera()
             isStreaming = true
-            Logger.log("DROIDCAM_STREAMER", "Streaming started: $width x $height @ ${settings.targetFps} fps ($format)")
+            Logger.log("DROIDCAM_STREAMER", "Streaming started: $validW x $validH @ ${settings.targetFps} fps ($format)")
         } catch (e: Exception) {
             Logger.log("DROIDCAM_STREAMER", "Failed to start stream: ${e.message}")
             stopStream()

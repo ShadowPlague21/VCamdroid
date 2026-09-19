@@ -42,10 +42,14 @@ import android.view.TextureView
 import androidx.core.content.ContextCompat
 import com.darusc.vcamdroid.databinding.DialogSensorProbeBinding
 import com.darusc.vcamdroid.databinding.ItemSensorResolutionBinding
+import com.darusc.vcamdroid.capabilities.ResolutionFpsMatrix
+import com.darusc.vcamdroid.capabilities.VideoCapabilityValidator
 import com.darusc.vcamdroid.util.applySystemBarInsets
 import com.darusc.vcamdroid.util.formatBitrateKbps
 import com.darusc.vcamdroid.video.AutoFitTextureView
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import android.media.MediaFormat
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import kotlin.math.abs
@@ -976,6 +980,43 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             dialog.dismiss()
         }
 
+        // Target FPS Map
+        val fpsMap = mapOf(
+            sheetBinding.btnFps24 to 24,
+            sheetBinding.btnFps30 to 30,
+            sheetBinding.btnFps48 to 48,
+            sheetBinding.btnFps60 to 60
+        )
+
+        fun styleFpsChip(btn: Button, selected: Boolean, supported: Boolean) {
+            if (!supported) {
+                btn.setBackgroundResource(R.drawable.bg_param_pill)
+                btn.backgroundTintList = null
+                btn.setTextColor(ContextCompat.getColor(this, R.color.text_muted))
+                btn.alpha = 0.35f
+            } else {
+                btn.alpha = 1.0f
+                btn.setBackgroundResource(if (selected) R.drawable.bg_param_pill_selected else R.drawable.bg_param_pill)
+                btn.backgroundTintList = null
+                btn.setTextColor(if (selected) ContextCompat.getColor(this, R.color.accent_green) else idleChipText)
+            }
+        }
+
+        fun refreshFpsButtonStates(currentW: Int, currentH: Int, selectedFps: Int) {
+            val maxFps = ResolutionFpsMatrix.getMaxFpsForResolution(this@DroidCamActivity, currentW, currentH, isBackCamera)
+            fpsMap.forEach { (btn, fps) ->
+                val supported = fps <= maxFps
+                styleFpsChip(btn, fps == selectedFps, supported)
+            }
+        }
+
+        fun updateFpsUI(selectedFps: Int) {
+            settings.targetFps = selectedFps
+            sheetBinding.txtCurrentFps.text = "$selectedFps fps"
+            refreshFpsButtonStates(settings.targetResolutionWidth, settings.targetResolutionHeight, selectedFps)
+            updateConnectionPill()
+        }
+
         // Resolutions
         val curW = settings.targetResolutionWidth
         val curH = settings.targetResolutionHeight
@@ -995,14 +1036,24 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             resMap.forEach { (btn, res) ->
                 styleChip(btn, res.first == selectedW && res.second == selectedH)
             }
+            refreshFpsButtonStates(selectedW, selectedH, settings.targetFps)
         }
         updateResolutionUI(curW, curH)
+        updateFpsUI(settings.targetFps)
 
         resMap.forEach { (btn, res) ->
             btn.setOnClickListener {
-                if (settings.targetResolutionWidth != res.first || settings.targetResolutionHeight != res.second) {
-                    applyResolutionChange(res.first, res.second)
-                    updateResolutionUI(res.first, res.second)
+                val (newW, newH) = res
+                if (settings.targetResolutionWidth != newW || settings.targetResolutionHeight != newH) {
+                    val maxFps = ResolutionFpsMatrix.getMaxFpsForResolution(this@DroidCamActivity, newW, newH, isBackCamera)
+                    if (settings.targetFps > maxFps) {
+                        settings.targetFps = maxFps
+                        val label = ResolutionFpsMatrix.getResolutionLabel(newW, newH)
+                        Toast.makeText(this@DroidCamActivity, "$label supports up to $maxFps FPS. FPS set to $maxFps.", Toast.LENGTH_SHORT).show()
+                        updateFpsUI(maxFps)
+                    }
+                    applyResolutionChange(newW, newH)
+                    updateResolutionUI(newW, newH)
                 }
             }
         }
@@ -1039,29 +1090,38 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
             btn.setOnClickListener { updateBitrateUI(kbps) }
         }
 
-        // Target FPS
-        val currentFps = settings.targetFps
-        sheetBinding.txtCurrentFps.text = "$currentFps fps"
-
-        val fpsMap = mapOf(
-            sheetBinding.btnFps24 to 24,
-            sheetBinding.btnFps30 to 30,
-            sheetBinding.btnFps48 to 48,
-            sheetBinding.btnFps60 to 60
-        )
-
-        fun updateFpsUI(selectedFps: Int) {
-            settings.targetFps = selectedFps
-            sheetBinding.txtCurrentFps.text = "$selectedFps fps"
-            fpsMap.forEach { (btn, fps) ->
-                styleChip(btn, fps == selectedFps)
-            }
-            updateConnectionPill()
-        }
-        updateFpsUI(currentFps)
-
         fpsMap.forEach { (btn, fps) ->
-            btn.setOnClickListener { updateFpsUI(fps) }
+            btn.setOnClickListener {
+                val activeW = settings.targetResolutionWidth
+                val activeH = settings.targetResolutionHeight
+                val maxFps = ResolutionFpsMatrix.getMaxFpsForResolution(this@DroidCamActivity, activeW, activeH, isBackCamera)
+
+                if (fps > maxFps) {
+                    val currentLabel = ResolutionFpsMatrix.getResolutionLabel(activeW, activeH)
+                    val targetRes = ResolutionFpsMatrix.findHighestResolutionForFps(this@DroidCamActivity, fps, activeW, activeH, isBackCamera)
+
+                    if (targetRes != null) {
+                        MaterialAlertDialogBuilder(this@DroidCamActivity)
+                            .setTitle("$fps FPS Unavailable at $currentLabel")
+                            .setMessage(
+                                "$currentLabel supports up to $maxFps FPS on this camera.\n\n" +
+                                "Switch to ${targetRes.label} to enable $fps FPS?"
+                            )
+                            .setPositiveButton("Switch to ${targetRes.label}") { _, _ ->
+                                applyResolutionChange(targetRes.width, targetRes.height)
+                                updateResolutionUI(targetRes.width, targetRes.height)
+                                updateFpsUI(fps)
+                            }
+                            .setNegativeButton("Cancel", null)
+                            .show()
+                    } else {
+                        Toast.makeText(this@DroidCamActivity, "$fps FPS is not supported by this camera", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    updateFpsUI(fps)
+                    applyResolutionChange(activeW, activeH)
+                }
+            }
         }
 
         // Anti-Flicker
@@ -1488,10 +1548,22 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         format: String = streamer.currentFormat,
         forceStartStream: Boolean = false
     ) {
-        settings.targetResolutionWidth = width
-        settings.targetResolutionHeight = height
+        val mimeType = if (format.equals("hevc", ignoreCase = true)) {
+            MediaFormat.MIMETYPE_VIDEO_HEVC
+        } else {
+            MediaFormat.MIMETYPE_VIDEO_AVC
+        }
+        val (validW, validH) = VideoCapabilityValidator.validateAndClamp(width, height, mimeType)
 
-        val (optW, optH) = streamer.getOptimalPreviewSize(width, height)
+        val maxFps = ResolutionFpsMatrix.getMaxFpsForResolution(this, validW, validH, isBackCamera)
+        if (settings.targetFps > maxFps) {
+            settings.targetFps = maxFps
+        }
+
+        settings.targetResolutionWidth = validW
+        settings.targetResolutionHeight = validH
+
+        val (optW, optH) = streamer.getOptimalPreviewSize(validW, validH)
         val st = binding.cameraPreview.surfaceTexture
         var newSurface: Surface? = null
         if (st != null) {
@@ -1504,7 +1576,7 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         adjustPreviewAspectRatio(optW, optH)
 
         if (forceStartStream || droidCamServer.isStreaming) {
-            streamer.startStream(format, width, height, settings.targetFps, isBackCamera)
+            streamer.startStream(format, validW, validH, settings.targetFps, isBackCamera)
         } else {
             streamer.startLocalPreview(isBackCamera)
         }
