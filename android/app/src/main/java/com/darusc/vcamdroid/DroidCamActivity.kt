@@ -497,17 +497,31 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         binding.seekWb.max = 6000
         binding.seekWb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (!fromUser) return
-                val k = 2000 + progress
-                binding.txtWbValue.text = "${k}K"
-                binding.valPillWb.text = "${k}K"
+                if (fromUser) {
+                    val k = 2000 + progress
+                    streamer.setWhiteBalanceKelvin(k)
+                    binding.txtWbValue.text = "${k}K"
+                    binding.valPillWb.text = "${k}K"
+                    highlightWbPreset(null)
+                }
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                val k = 2000 + (seekBar?.progress ?: 0)
-                applyManualKelvin(k, null)
-            }
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
+
+        val openWbDialog = {
+            showDirectNumericEditDialog(
+                title = "Direct White Balance Entry",
+                currentValueStr = "${if (settings.isManualWb) settings.lastKelvin else 5000}",
+                unitLabel = "K",
+                minVal = 2000f,
+                maxVal = 8000f,
+                isInteger = true
+            ) { value ->
+                applyManualKelvin(value.roundToInt(), null)
+            }
+        }
+        binding.txtWbValue.setOnClickListener { openWbDialog() }
 
         if (settings.isManualWb) {
             applyManualKelvin(settings.lastKelvin, null)
@@ -1207,11 +1221,6 @@ class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener
         // Initial render
         styleTab(probeBinding.btnTabRear, listOf(probeBinding.btnTabFront, probeBinding.btnTabAll))
         renderCapabilities()
-        dialog.show()
-    }
-
-    private fun showConnectionDetailsDialog
-        renderResolutions(true)
         dialog.show()
     }
 
