@@ -112,6 +112,30 @@ jobs:
             msbuild_vcamdroid.log
           retention-days: 2
 
+      - name: Push Build Log On Failure
+        if: failure()
+        shell: pwsh
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B ci-log
+          if (Test-Path msbuild_vcamdroid.log) {
+            git add msbuild_vcamdroid.log -f
+          }
+          git commit -m "chore: upload build log for diagnostics [skip ci]" --allow-empty
+          git push origin ci-log --force
+
+      - name: Push Build Artifacts
+        if: success()
+        shell: pwsh
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B ci-artifacts
+          git add dist/ -f
+          git commit -m "chore: publish windows build artifacts [skip ci]"
+          git push origin ci-artifacts --force
+
   build-android:
     name: Build Android App
     runs-on: ubuntu-latest
