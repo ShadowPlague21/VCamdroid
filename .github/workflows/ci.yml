@@ -24,6 +24,12 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Cache vcpkg installed
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: ${{ runner.os }}-vcpkg-deps-v1
+
       - name: Install vcpkg dependencies
         run: |
           vcpkg integrate install
@@ -31,7 +37,8 @@ jobs:
 
       - name: Build Softcam Library
         run: |
-          msbuild windows/3rdparty/softcam/softcam.sln /p:Configuration=Release /p:Platform=x64 /m
+          nuget restore windows/3rdparty/softcam/softcam.sln
+          msbuild windows/3rdparty/softcam/softcam.sln /t:softcam /p:Configuration=Release /p:Platform=x64 /m
 
       - name: Build Softcam Installer
         run: |
