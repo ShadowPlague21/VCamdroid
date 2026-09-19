@@ -10,3 +10,7 @@ windows/ARM64/
 /ui_screenshots/
 ui_screenshots/
 *.png
+*.jpg
+*.jpeg
+*.webp
+*.bmp
