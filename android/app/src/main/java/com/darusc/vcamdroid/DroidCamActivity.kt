@@ -25,13 +25,17 @@ import com.darusc.vcamdroid.droidcam.DroidCamStreamer
 import com.darusc.vcamdroid.droidcam.MdnsAdvertiser
 import com.darusc.vcamdroid.ai.AiTrackerEngine
 import com.darusc.vcamdroid.service.StreamingService
-import com.darusc.vcamdroid.util.Logger
+import android.graphics.Matrix
+import android.graphics.RectF
+import android.graphics.SurfaceTexture
+import android.view.TextureView
+import com.darusc.vcamdroid.video.AutoFitTextureView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import kotlin.math.roundToInt
 
-class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamServer.Listener {
+class DroidCamActivity : AppCompatActivity(), TextureView.SurfaceTextureListener, DroidCamServer.Listener {
 
     private lateinit var binding: ActivityDroidcamBinding
     private lateinit var droidCamServer: DroidCamServer
@@ -61,7 +65,7 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
         mdnsAdvertiser = MdnsAdvertiser(this)
         streamer = DroidCamStreamer(this, droidCamServer)
 
-        binding.cameraPreview.holder.addCallback(this)
+        binding.cameraPreview.surfaceTextureListener = this
 
         setupStudioHUD()
         setupOpticalControls()
@@ -806,6 +810,8 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
                 if (selected.first > 0 && selected.second > 0) {
                     settings.targetResolutionWidth = selected.first
                     settings.targetResolutionHeight = selected.second
+                    adjustPreviewAspectRatio(selected.first, selected.second)
+                    binding.cameraPreview.surfaceTexture?.setDefaultBufferSize(selected.first, selected.second)
                     if (droidCamServer.isStreaming) {
                         streamer.stopStream()
                         streamer.startStream(streamer.currentFormat, selected.first, selected.second, settings.targetFps, isBackCamera)
@@ -858,48 +864,77 @@ class DroidCamActivity : AppCompatActivity(), SurfaceHolder.Callback, DroidCamSe
         return null
     }
 
+    private var previewSurface: Surface? = null
+
     private fun adjustPreviewAspectRatio(streamWidth: Int, streamHeight: Int) {
-        binding.root.post {
-            val rootW = binding.root.width
-            val rootH = binding.root.height
-            if (rootW <= 0 || rootH <= 0 || streamWidth <= 0 || streamHeight <= 0) return@post
+        if (streamWidth <= 0 || streamHeight <= 0) return
+        val rotation = windowManager.defaultDisplay.rotation
+        val isPortrait = rotation == Surface.ROTATION_0 || rotation == Surface.ROTATION_180
 
-            val aspect = if (streamWidth > streamHeight) {
-                streamHeight.toFloat() / streamWidth.toFloat()
-            } else {
-                streamWidth.toFloat() / streamHeight.toFloat()
-            }
+        val aspectW = if (isPortrait) minOf(streamWidth, streamHeight) else maxOf(streamWidth, streamHeight)
+        val aspectH = if (isPortrait) maxOf(streamWidth, streamHeight) else minOf(streamWidth, streamHeight)
 
-            var targetW = rootW
-            var targetH = (rootW / aspect).roundToInt()
-
-            if (targetH > rootH) {
-                targetH = rootH
-                targetW = (rootH * aspect).roundToInt()
-            }
-
-            val lp = binding.cameraPreview.layoutParams
-            if (lp.width != targetW || lp.height != targetH) {
-                lp.width = targetW
-                lp.height = targetH
-                binding.cameraPreview.layoutParams = lp
-                binding.cameraPreview.holder.setFixedSize(targetW, targetH)
-            }
+        binding.cameraPreview.setAspectRatio(aspectW, aspectH)
+        binding.cameraPreview.post {
+            configureTransform(binding.cameraPreview.width, binding.cameraPreview.height)
         }
     }
 
-    // --- SurfaceHolder.Callback ---
+    private fun configureTransform(viewWidth: Int, viewHeight: Int) {
+        if (viewWidth <= 0 || viewHeight <= 0) return
 
-    override fun surfaceCreated(holder: SurfaceHolder) {
+        val rotation = windowManager.defaultDisplay.rotation
+        val matrix = Matrix()
+        val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
+
+        val streamW = settings.targetResolutionWidth.toFloat()
+        val streamH = settings.targetResolutionHeight.toFloat()
+        val bufferRect = RectF(0f, 0f, streamH, streamW)
+
+        val centerX = viewRect.centerX()
+        val centerY = viewRect.centerY()
+
+        if (Surface.ROTATION_0 == rotation) {
+            matrix.postRotate(180f, centerX, centerY)
+        } else if (Surface.ROTATION_90 == rotation || Surface.ROTATION_270 == rotation) {
+            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+            matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+            val scale = maxOf(
+                viewHeight.toFloat() / streamH,
+                viewWidth.toFloat() / streamW
+            )
+            matrix.postScale(scale, scale, centerX, centerY)
+            matrix.postRotate((90 * (rotation - 2) + 180).toFloat() % 360f, centerX, centerY)
+        } else if (Surface.ROTATION_180 == rotation) {
+            // No rotation needed when phone is physically upside down
+        }
+
+        binding.cameraPreview.setTransform(matrix)
+    }
+
+    // --- TextureView.SurfaceTextureListener ---
+
+    override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+        surfaceTexture.setDefaultBufferSize(settings.targetResolutionWidth, settings.targetResolutionHeight)
         adjustPreviewAspectRatio(settings.targetResolutionWidth, settings.targetResolutionHeight)
-        streamer.onScreenOn(holder.surface)
+        configureTransform(width, height)
+        val surface = Surface(surfaceTexture)
+        previewSurface = surface
+        streamer.onScreenOn(surface)
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+    override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+        configureTransform(width, height)
+    }
 
-    override fun surfaceDestroyed(holder: SurfaceHolder) {
+    override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+        previewSurface?.release()
+        previewSurface = null
         streamer.onScreenOff()
+        return true
     }
+
+    override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {}
 
     // --- DroidCamServer.Listener ---
 

@@ -8,9 +8,9 @@
     tools:context=".DroidCamActivity">
 
     <!-- Camera Preview Viewport (Aspect-Fit Center, Uncropped) -->
-    <SurfaceView
+    <com.darusc.vcamdroid.video.AutoFitTextureView
         android:id="@+id/cameraPreview"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
